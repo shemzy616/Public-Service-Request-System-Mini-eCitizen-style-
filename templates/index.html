@@ -1,0 +1,3529 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <link rel="icon" type="image/png" href="{{ url_for('static', filename='logo.png') }}">
+  <link rel="apple-touch-icon" href="{{ url_for('static', filename='logo.png') }}">
+  <title>Huduma Murang'a — Public Service Request Portal</title>
+
+  <!-- Google Fonts: Plus Jakarta Sans (600, 700), Inter (400, 500, 600), JetBrains Mono (500, 600) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600&family=Plus+Jakarta+Sans:wght@600;700&display=swap" rel="stylesheet">
+
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            display: ['"Plus Jakarta Sans"', 'sans-serif'],
+            sans: ['Inter', 'sans-serif'],
+            mono: ['"JetBrains Mono"', 'monospace'],
+          }
+        }
+      }
+    }
+  </script>
+
+  <!-- React 18 + ReactDOM 18 (UMD builds, no bundler required) -->
+  <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+
+  <!-- Babel Standalone — transpiles JSX in the browser -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <style>
+    /* ── Mobile safe area & horizontal scroll prevention ────────── */
+    html, body {
+      overflow-x: hidden;
+      width: 100%;
+      max-width: 100vw;
+    }
+    .no-scrollbar::-webkit-scrollbar { display: none; }
+    .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+    /* ── Default typography: Inter font-sans ─────────────────────────── */
+    body {
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    }
+
+    /* ── Subtle card lift ──────────────────────────── */
+    .card-shadow { box-shadow: 0 2px 10px rgba(6, 78, 59, 0.06); }
+    .kpi-hover   { transition: transform 0.15s ease, box-shadow 0.15s ease; }
+    .kpi-hover:hover { transform: translateY(-2px); box-shadow: 0 6px 18px rgba(6, 78, 59, 0.12); }
+
+    /* ── Fade-in entrance animation ──────────────────── */
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(10px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    .fade-in { animation: fadeUp 0.28s ease both; }
+
+    /* ── Full-screen lightbox overlay ────────────────── */
+    .lightbox {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.88);
+      z-index: 9999;
+      display: flex; align-items: center; justify-content: center;
+    }
+
+    /* ── Star rating hover effect ────────────────────── */
+    .star { cursor: pointer; font-size: 1.4rem; transition: transform 0.1s; }
+    .star:hover { transform: scale(1.25); }
+
+    /* ── Custom scrollbar ────────────────────────────── */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #f5f5f4; }
+    ::-webkit-scrollbar-thumb { background: #a8a29e; border-radius: 3px; }
+
+    /* ── Hero gradient (Aberdare Forest Green to Deep Emerald) ──────── */
+    .hero-bg {
+      background: linear-gradient(135deg, #064e3b 0%, #047857 55%, #065f46 100%);
+    }
+  </style>
+</head>
+
+<body class="bg-stone-50 min-h-screen text-stone-900 font-sans overflow-x-hidden w-full">
+<div id="root"></div>
+
+{# ════════════════════════════════════════════════════════════════════════════ #}
+{# CRITICAL: The {% raw %} tag below tells Jinja2 to pass this entire block    #}
+{# to the browser verbatim without trying to interpret {{ }} as template vars. #}
+{# Without it, every React JSX expression like {user.name} would throw a      #}
+{# Jinja2 UndefinedError and crash render_template("index.html").             #}
+{# ════════════════════════════════════════════════════════════════════════════ #}
+{% raw %}
+<script type="text/babel">
+/* ─────────────────────────────────────────────────────────────────────────────
+   Huduma Murang'a  —  Public Service Request System
+   County 021 | Murang'a County Government
+
+   Visual Theme (Murang'a County Symbols Act):
+     • Primary Brand (Aberdare Forest Green): bg-emerald-900 for header,
+       bg-emerald-700 hover:bg-emerald-800 for buttons, text-emerald-900 for titles.
+     • Secondary Accent (Harvest Gold): border-b-4 border-amber-500 gold ribbon,
+       text-amber-400 / bg-amber-500 for emblems and star ratings.
+     • Surface & Text: Crisp white cards (bg-white) over warm stone canvas (bg-stone-50)
+       with high-contrast Coffee-dark text (text-stone-900).
+     • Semantic Badges:
+       - Pending: bg-amber-100 text-amber-900 border border-amber-300
+       - In Progress: bg-sky-100 text-sky-900 border border-sky-300
+       - Resolved: bg-green-100 text-green-800 border border-green-300
+   ─────────────────────────────────────────────────────────────────────────── */
+
+const { useState, useEffect, useCallback, useRef } = React;
+
+/* ── Domain constants (mirror server-side whitelists) ─────────────────────── */
+const CATEGORIES   = ["Water & Sewerage","Streetlight & Electrical","Garbage & Sanitation","Roads & Drainage"];
+const SUB_COUNTIES = ["Kiharu","Mathioya","Kangema","Gatanga","Maragua","Kandara","Kigumo"];
+const PRIORITIES   = ["Normal","High","Urgent"];
+const STATUSES     = ["Pending","In Progress","Resolved"];
+
+/* ── Murang'a County Photographic Tile Mosaic (Hero Background) ───────────── */
+const HERO_MOSAIC_IMAGES = [
+  "/static/muranga%20%20roads.jpg",
+  "/static/Muranga%20County%20Central%20Province%20Tea%20Farming%20Kenyan.jpg",
+  "/static/muranga%20tea.jpg",
+  "/static/town%20muranga.jpg",
+  "/static/water%20mur.jpg"
+];
+
+const HERO_TILES = Array.from({ length: 24 }, (_, idx) => ({
+  src: HERO_MOSAIC_IMAGES[idx % HERO_MOSAIC_IMAGES.length],
+  flip: Math.floor(idx / HERO_MOSAIC_IMAGES.length) % 2 === 1,
+  pos: idx % 3 === 0 ? "object-center" : idx % 3 === 1 ? "object-top" : "object-bottom"
+}));
+
+/* ═══════════════════════════════════════════════════════════════════════════ */
+/*  LUCIDE-STYLE INLINE SVG ICON SYSTEM (2px stroke)                            */
+/* ═══════════════════════════════════════════════════════════════════════════ */
+
+function IconDroplet({ className = "w-4 h-4" }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 22a7 7 0 0 0 7-7c0-2-1-3.9-3-5.5s-3.5-4-4-6.5c-.5 2.5-2 4.9-4 6.5C6 11.1 5 13 5 15a7 7 0 0 0 7 7z" />
+    </svg>
+  );
+}
+
+function IconZap({ className = "w-4 h-4" }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+    </svg>
+  );
+}
+
+function IconTrash({ className = "w-4 h-4" }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="3 6 5 6 21 6" />
+      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+      <line x1="10" y1="11" x2="10" y2="17" />
+      <line x1="14" y1="11" x2="14" y2="17" />
+    </svg>
+  );
+}
+
+function IconConstruction({ className = "w-4 h-4" }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="2" y="6" width="20" height="8" rx="1" />
+      <path d="M17 14v7" />
+      <path d="M7 14v7" />
+      <path d="M14 6L8 14" />
+      <path d="M2 10h20" />
+    </svg>
+  );
+}
+
+function IconClock({ className = "w-4 h-4" }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="10" />
+      <polyline points="12 6 12 12 16 14" />
+    </svg>
+  );
+}
+
+function IconRotateCw({ className = "w-4 h-4" }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="23 4 23 10 17 10" />
+      <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+    </svg>
+  );
+}
+
+function IconCheckCircle({ className = "w-4 h-4" }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+      <polyline points="22 4 12 14.01 9 11.01" />
+    </svg>
+  );
+}
+
+function IconSearch({ className = "w-4 h-4" }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="11" cy="11" r="8" />
+      <line x1="21" y1="21" x2="16.65" y2="16.65" />
+    </svg>
+  );
+}
+
+function IconDownload({ className = "w-4 h-4" }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+      <polyline points="7 10 12 15 17 10" />
+      <line x1="12" y1="15" x2="12" y2="3" />
+    </svg>
+  );
+}
+
+function IconShield({ className = "w-4 h-4" }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+    </svg>
+  );
+}
+
+function IconUsers({ className = "w-4 h-4" }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+      <circle cx="9" cy="7" r="4" />
+      <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+      <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+    </svg>
+  );
+}
+
+function IconLayers({ className = "w-4 h-4" }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polygon points="12 2 2 7 12 12 22 7 12 2" />
+      <polyline points="2 17 12 22 22 17" />
+      <polyline points="2 12 12 17 22 12" />
+    </svg>
+  );
+}
+
+function IconBarChart({ className = "w-4 h-4" }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="18" y1="20" x2="18" y2="10" />
+      <line x1="12" y1="20" x2="12" y2="4" />
+      <line x1="6" y1="20" x2="6" y2="14" />
+    </svg>
+  );
+}
+
+function IconSend({ className = "w-4 h-4" }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="22" y1="2" x2="11" y2="13" />
+      <polygon points="22 2 15 22 11 13 2 9 22 2" />
+    </svg>
+  );
+}
+
+function IconAlertCircle({ className = "w-4 h-4" }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="10" />
+      <line x1="12" y1="8" x2="12" y2="12" />
+      <line x1="12" y1="16" x2="12.01" y2="16" />
+    </svg>
+  );
+}
+
+function IconInfo({ className = "w-4 h-4" }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="10" />
+      <line x1="12" y1="16" x2="12" y2="12" />
+      <line x1="12" y1="8" x2="12.01" y2="8" />
+    </svg>
+  );
+}
+
+function IconLogOut({ className = "w-4 h-4" }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+      <polyline points="16 17 21 12 16 7" />
+      <line x1="21" y1="12" x2="9" y2="12" />
+    </svg>
+  );
+}
+
+function IconPhone({ className = "w-4 h-4" }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" />
+    </svg>
+  );
+}
+
+function IconMail({ className = "w-4 h-4" }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
+      <polyline points="22,6 12,13 2,6" />
+    </svg>
+  );
+}
+
+function IconX({ className = "w-4 h-4" }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="18" y1="6" x2="6" y2="18" />
+      <line x1="6" y1="6" x2="18" y2="18" />
+    </svg>
+  );
+}
+
+function IconUser({ className = "w-4 h-4" }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+      <circle cx="12" cy="7" r="4" />
+    </svg>
+  );
+}
+
+function IconKey({ className = "w-4 h-4" }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21 2l-2 2m-1.5 1.5L14 9l-1.5-1.5-2 2 1.5 1.5-4 4A6 6 0 1 1 2 9a6 6 0 0 1 7-4.9" />
+      <circle cx="7.5" cy="7.5" r=".5" fill="currentColor" />
+    </svg>
+  );
+}
+
+function IconLock({ className = "w-4 h-4" }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+      <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+    </svg>
+  );
+}
+
+function IconMapPin({ className = "w-4 h-4" }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" />
+      <circle cx="12" cy="10" r="3" />
+    </svg>
+  );
+}
+
+function IconCamera({ className = "w-4 h-4" }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+      <circle cx="12" cy="13" r="4" />
+    </svg>
+  );
+}
+
+function IconEye({ className = "w-4 h-4" }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+      <circle cx="12" cy="12" r="3" />
+    </svg>
+  );
+}
+
+function IconEyeOff({ className = "w-4 h-4" }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
+      <line x1="1" y1="1" x2="23" y2="23" />
+    </svg>
+  );
+}
+
+function IconCopy({ className = "w-4 h-4" }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+    </svg>
+  );
+}
+
+function IconCheck({ className = "w-4 h-4" }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="20 6 9 17 4 12" />
+    </svg>
+  );
+}
+
+function CopyTicketButton({ ticketId, className = "", iconOnly = false }) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async (e) => {
+    e && e.stopPropagation();
+    if (!ticketId) return;
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(ticketId);
+      } else {
+        const textArea = document.createElement("textarea");
+        textArea.value = ticketId;
+        textArea.style.position = "fixed";
+        textArea.style.left = "-999999px";
+        textArea.style.top = "-999999px";
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        document.execCommand("copy");
+        textArea.remove();
+      }
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.error("Copy failed:", err);
+    }
+  };
+
+  if (iconOnly) {
+    return (
+      <button
+        type="button"
+        onClick={handleCopy}
+        title={copied ? "Copied to clipboard!" : `Copy Ticket ID (${ticketId})`}
+        aria-label="Copy Ticket ID"
+        className={`inline-flex items-center justify-center p-1.5 rounded-lg transition ${
+          copied
+            ? "text-emerald-700 bg-emerald-100 ring-1 ring-emerald-400"
+            : "text-stone-400 hover:text-stone-800 hover:bg-stone-100"
+        } ${className}`}
+      >
+        {copied ? <IconCheck className="w-3.5 h-3.5 text-emerald-600" /> : <IconCopy className="w-3.5 h-3.5" />}
+      </button>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={handleCopy}
+      title={copied ? "Copied to clipboard!" : `Copy Ticket ID (${ticketId})`}
+      aria-label="Copy Ticket ID"
+      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-sans font-semibold transition shadow-xs ${
+        copied
+          ? "bg-emerald-100 text-emerald-900 border border-emerald-300 ring-1 ring-emerald-300"
+          : "bg-stone-100 hover:bg-stone-200 text-stone-700 border border-stone-200 hover:border-stone-300"
+      } ${className}`}
+    >
+      {copied ? (
+        <>
+          <IconCheck className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+          <span className="text-[11px] text-emerald-800">Copied!</span>
+        </>
+      ) : (
+        <>
+          <IconCopy className="w-3.5 h-3.5 text-stone-500 shrink-0" />
+          <span className="text-[11px]">Copy ID</span>
+        </>
+      )}
+    </button>
+  );
+}
+
+function CategoryIcon({ category, className = "w-3.5 h-3.5" }) {
+  if (category === "Water & Sewerage") return <IconDroplet className={className} />;
+  if (category === "Streetlight & Electrical") return <IconZap className={className} />;
+  if (category === "Garbage & Sanitation") return <IconTrash className={className} />;
+  if (category === "Roads & Drainage") return <IconConstruction className={className} />;
+  return <IconLayers className={className} />;
+}
+
+/* ── API helper ────────────────────────────────────────────────────────────── */
+async function api(url, opts = {}) {
+  const isForm  = opts.body instanceof FormData;
+  const headers = isForm ? {} : { 'Content-Type': 'application/json', ...(opts.headers || {}) };
+  try {
+    const res  = await fetch(url, { credentials: 'same-origin', headers, ...opts });
+    const ct   = res.headers.get('content-type') || '';
+    const data = ct.includes('application/json') ? await res.json() : {};
+    return { ok: res.ok, status: res.status, data };
+  } catch (err) {
+    return { ok: false, status: 0, data: { error: 'Network error — please check your connection.' } };
+  }
+}
+
+/* ── Date formatter ──────────────────────────────────────────────────────────
+ * SQLite stores timestamps as "YYYY-MM-DD HH:MM:SS" (space separator, no TZ).
+ */
+function fmtDate(ts) {
+  if (!ts) return '—';
+  return new Date(ts.replace(' ', 'T') + 'Z').toLocaleString();
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════ */
+/*  REUSABLE STATUS & BADGE COMPONENTS (Murang'a Semantic Palette)              */
+/* ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Status badge with Murang'a Semantic Colors ──────────────────────────── */
+function StatusBadge({ status }) {
+  if (status === 'Pending') {
+    return (
+      <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold font-sans bg-amber-100 text-amber-900 border border-amber-300">
+        <IconClock className="w-3.5 h-3.5 text-amber-700" />
+        {status}
+      </span>
+    );
+  }
+  if (status === 'In Progress') {
+    return (
+      <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold font-sans bg-sky-100 text-sky-900 border border-sky-300">
+        <IconRotateCw className="w-3.5 h-3.5 text-sky-700" />
+        {status}
+      </span>
+    );
+  }
+  if (status === 'Resolved') {
+    return (
+      <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold font-sans bg-green-100 text-green-800 border border-green-300">
+        <IconCheckCircle className="w-3.5 h-3.5 text-green-700" />
+        {status}
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold font-sans bg-stone-100 text-stone-700 border border-stone-300">
+      <IconInfo className="w-3.5 h-3.5 text-stone-500" />
+      {status}
+    </span>
+  );
+}
+
+/* ── Priority badge with 2px stroke SVG dot indicator ───────────────────── */
+function PriorityBadge({ priority }) {
+  const cls = {
+    'Urgent': 'bg-red-100 text-red-700 border border-red-300',
+    'High':   'bg-amber-100 text-amber-800 border border-amber-300',
+    'Normal': 'bg-stone-100 text-stone-700 border border-stone-200',
+  }[priority] || 'bg-stone-100 text-stone-700';
+
+  const dotColor = {
+    'Urgent': 'bg-red-500',
+    'High':   'bg-amber-500',
+    'Normal': 'bg-stone-400',
+  }[priority] || 'bg-stone-400';
+
+  return (
+    <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium font-sans ${cls}`}>
+      <span className={`w-1.5 h-1.5 rounded-full ${dotColor}`} />
+      {priority}
+    </span>
+  );
+}
+
+/* ── Spinner ──────────────────────────────────────────────────────────────── */
+function Spinner({ size = 8 }) {
+  return (
+    <div className="flex justify-center py-10">
+      <div className={`w-${size} h-${size} border-4 border-emerald-200 border-t-emerald-800 rounded-full animate-spin`} />
+    </div>
+  );
+}
+
+/* ── Alert banner with SVG icons ─────────────────────────────────────────── */
+function Alert({ type = 'error', msg, onClose }) {
+  if (!msg) return null;
+  const config = {
+    error:   { cls: 'bg-red-50 border-red-300 text-red-800', icon: <IconAlertCircle className="w-4 h-4 text-red-600 flex-shrink-0 mt-0.5" /> },
+    success: { cls: 'bg-green-50 border-green-300 text-green-900', icon: <IconCheckCircle className="w-4 h-4 text-green-700 flex-shrink-0 mt-0.5" /> },
+    info:    { cls: 'bg-emerald-50 border-emerald-300 text-emerald-900', icon: <IconInfo className="w-4 h-4 text-emerald-700 flex-shrink-0 mt-0.5" /> },
+    warn:    { cls: 'bg-amber-50 border-amber-300 text-amber-900', icon: <IconAlertCircle className="w-4 h-4 text-amber-700 flex-shrink-0 mt-0.5" /> },
+  }[type] || { cls: 'bg-red-50 border-red-300 text-red-800', icon: <IconAlertCircle className="w-4 h-4 text-red-600 flex-shrink-0 mt-0.5" /> };
+
+  return (
+    <div className={`border rounded-xl px-4 py-3 text-sm font-sans mb-3 flex items-start justify-between gap-2.5 ${config.cls} fade-in`} role="alert">
+      <div className="flex items-start gap-2.5">
+        {config.icon}
+        <span>{msg}</span>
+      </div>
+      {onClose && <button onClick={onClose} className="font-bold opacity-50 hover:opacity-100 ml-2 flex-shrink-0">✕</button>}
+    </div>
+  );
+}
+
+/* ── 3-Step Progress Stepper ──────────────────────────────────────────────── */
+function ProgressStepper({ status }) {
+  const steps = [
+    { label: 'Pending',     sub: 'Received',   filled: '#d97706' }, // Warm Amber
+    { label: 'In Progress', sub: 'Dispatched', filled: '#0284c7' }, // River Blue
+    { label: 'Resolved',    sub: 'Completed',  filled: '#15803d' }, // Vibrant Leaf Green
+  ];
+  const cur = steps.findIndex(s => s.label === status);
+
+  return (
+    <div className="flex items-start justify-between w-full my-3 sm:my-4 font-sans">
+      {steps.map((step, i) => (
+        <React.Fragment key={step.label}>
+          <div className="flex flex-col items-center flex-1 min-w-[52px] max-w-[88px] sm:max-w-none">
+            <div
+              className="w-7 h-7 sm:w-8 sm:h-8 rounded-full flex items-center justify-center text-[10px] sm:text-xs font-bold font-mono tabular-nums border-2 transition-all shadow-sm shrink-0"
+              style={i <= cur
+                ? { background: step.filled, borderColor: step.filled, color: '#fff' }
+                : { background: '#fff', borderColor: '#d6d3d1', color: '#a8a29e' }}>
+              {i < cur ? (
+                <svg className="w-3.5 h-3.5 sm:w-4 sm:h-4 stroke-current stroke-2" fill="none" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12" /></svg>
+              ) : i + 1}
+            </div>
+            <p className={`text-[11px] sm:text-xs font-semibold mt-1 text-center leading-tight ${i <= cur ? 'text-stone-900' : 'text-stone-400'}`}>{step.label}</p>
+            <p className={`text-[10px] sm:text-[11px] mt-0.5 text-center leading-tight ${i <= cur ? 'text-stone-600' : 'text-stone-400'}`}>{step.sub}</p>
+          </div>
+          {i < 2 && (
+            <div
+              className="flex-1 h-1 sm:h-1.5 rounded-full mt-3 sm:mt-4 mx-0.5 sm:mx-1 transition-all"
+              style={{ background: i < cur ? '#059669' : '#e7e5e4' }}
+            />
+          )}
+        </React.Fragment>
+      ))}
+    </div>
+  );
+}
+
+/* ── Lightbox ─────────────────────────────────────────────────────────────── */
+function Lightbox({ src, onClose }) {
+  return (
+    <div className="lightbox" onClick={onClose} aria-label="Close image viewer">
+      <div onClick={e => e.stopPropagation()} className="relative">
+        <button onClick={onClose}
+          className="absolute -top-10 right-0 text-white text-3xl font-bold hover:opacity-70 transition font-sans"
+          aria-label="Close">✕</button>
+        <img src={src} alt="Photo evidence" className="rounded-xl shadow-2xl"
+          style={{ maxHeight: '82vh', maxWidth: '90vw', objectFit: 'contain' }} />
+      </div>
+    </div>
+  );
+}
+
+/* ── Star Rating Input (citizen rates resolved request) ───────────────────── */
+function StarRatingInput({ reqId, currentRating, onRated }) {
+  const [hover, setHover]       = useState(0);
+  const [saved, setSaved]       = useState(currentRating || 0);
+  const [loading, setLoading]   = useState(false);
+
+  async function rate(star) {
+    if (saved || loading) return;
+    setLoading(true);
+    const { ok, data } = await api(`/api/requests/${reqId}/rate`, {
+      method: 'PATCH', body: JSON.stringify({ rating: star }),
+    });
+    setLoading(false);
+    if (ok) { setSaved(star); onRated && onRated(star); }
+    else alert(data.error || 'Rating could not be saved.');
+  }
+
+  return (
+    <div className="flex items-center gap-1 mt-2 flex-wrap font-sans">
+      <span className="text-xs text-stone-500 mr-1">{saved ? 'Your rating:' : 'Rate this service:'}</span>
+      {[1,2,3,4,5].map(s => (
+        <span key={s}
+          className={`star transition-colors ${s <= (saved || hover) ? 'text-amber-500' : 'text-stone-300'} ${(saved || loading) ? 'cursor-default' : ''}`}
+          onMouseEnter={() => !saved && setHover(s)}
+          onMouseLeave={() => !saved && setHover(0)}
+          onClick={() => rate(s)}
+          role="button" aria-label={`Rate ${s} star${s>1?'s':''}`}>★</span>
+      ))}
+      {loading && <span className="text-xs text-stone-400 ml-1 animate-pulse font-mono">Saving…</span>}
+      {saved > 0 && <span className="text-xs text-stone-600 ml-1 font-mono tabular-nums font-semibold">({saved}/5)</span>}
+    </div>
+  );
+}
+
+/* ── Reusable Password Input with Show/Hide Toggle Button ────────────────── */
+function PasswordInput({
+  value,
+  onChange,
+  placeholder = "••••••••",
+  required = false,
+  className = "",
+  autoComplete = "current-password",
+  id,
+  name,
+}) {
+  const [showPassword, setShowPassword] = useState(false);
+
+  return (
+    <div className="relative">
+      <input
+        type={showPassword ? "text" : "password"}
+        value={value}
+        onChange={onChange}
+        placeholder={placeholder}
+        required={required}
+        id={id}
+        name={name}
+        autoComplete={autoComplete}
+        className={`w-full bg-white/70 backdrop-blur-md border border-stone-200/80 focus:bg-white focus:border-emerald-600 focus:ring-4 focus:ring-emerald-500/15 text-stone-900 placeholder-stone-400 rounded-xl pl-4 pr-10 py-3 text-base sm:text-sm min-h-[44px] font-sans outline-none shadow-xs transition-all ${className}`}
+      />
+      <button
+        type="button"
+        onClick={() => setShowPassword(!showPassword)}
+        aria-label={showPassword ? "Hide password" : "Show password"}
+        title={showPassword ? "Hide password" : "Show password"}
+        tabIndex="-1"
+        className="absolute inset-y-0 right-0 pr-3 flex items-center text-stone-400 hover:text-emerald-800 focus:outline-none transition"
+      >
+        {showPassword ? (
+          <IconEyeOff className="w-4 h-4" />
+        ) : (
+          <IconEye className="w-4 h-4" />
+        )}
+      </button>
+    </div>
+  );
+}
+
+/* ── Reusable Real-time Password Requirements Checklist & Strength Meter ── */
+function PasswordRequirements({ password = "" }) {
+  if (!password) return null;
+
+  const rules = [
+    { id: "length",  label: "At least 6 characters",         met: password.length >= 6 },
+    { id: "upper",   label: "One uppercase letter (A-Z)",     met: /[A-Z]/.test(password) },
+    { id: "lower",   label: "One lowercase letter (a-z)",     met: /[a-z]/.test(password) },
+    { id: "number",  label: "One number (0-9)",               met: /[0-9]/.test(password) },
+    { id: "special", label: "One symbol (e.g. !@#$%^&*)",     met: /[^A-Za-z0-9]/.test(password) },
+  ];
+
+  const metCount = rules.filter(r => r.met).length;
+
+  let strengthLabel = "Weak";
+  let strengthTextColor = "text-rose-600";
+  let strengthBarColor = "bg-rose-500";
+  if (metCount >= 5) {
+    strengthLabel = "Strong";
+    strengthTextColor = "text-emerald-700";
+    strengthBarColor = "bg-emerald-600";
+  } else if (metCount >= 4) {
+    strengthLabel = "Good";
+    strengthTextColor = "text-emerald-600";
+    strengthBarColor = "bg-emerald-500";
+  } else if (metCount >= 3) {
+    strengthLabel = "Fair";
+    strengthTextColor = "text-amber-600";
+    strengthBarColor = "bg-amber-500";
+  }
+
+  return (
+    <div className="mt-2.5 p-3 rounded-xl bg-white/70 backdrop-blur-md border border-stone-200/80 shadow-xs text-xs font-sans transition-all duration-300">
+      <div className="flex items-center justify-between gap-2 mb-2">
+        <span className="text-[11px] font-semibold text-stone-600 uppercase tracking-wide">
+          Password Strength: <span className={`font-bold ${strengthTextColor}`}>{strengthLabel}</span>
+        </span>
+        <div className="flex gap-1 w-28">
+          {[1, 2, 3, 4, 5].map(step => (
+            <div
+              key={step}
+              className={`h-1.5 flex-1 rounded-full transition-all duration-300 ${
+                step <= metCount ? strengthBarColor : "bg-stone-200"
+              }`}
+            />
+          ))}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 pt-1.5 border-t border-stone-200/60">
+        {rules.map(rule => (
+          <div
+            key={rule.id}
+            className={`flex items-center gap-1.5 transition-colors duration-200 ${
+              rule.met ? "text-emerald-800 font-medium" : "text-stone-400"
+            }`}
+          >
+            {rule.met ? (
+              <span className="w-4 h-4 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
+                <svg className="w-2.5 h-2.5 stroke-current stroke-[2.5]" fill="none" viewBox="0 0 24 24">
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+              </span>
+            ) : (
+              <span className="w-4 h-4 rounded-full bg-stone-200 text-stone-400 flex items-center justify-center shrink-0 text-[10px] leading-none">
+                •
+              </span>
+            )}
+            <span className="text-[11px] truncate">{rule.label}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════ */
+/*  CITIZEN TICKET CARD                                                         */
+/* ═══════════════════════════════════════════════════════════════════════════ */
+function TicketCard({ req, onRefresh }) {
+  const [lightbox, setLightbox] = useState(null);
+  const [deleting, setDeleting] = useState(false);
+
+  const handleDismiss = async () => {
+    if (!confirm(`Clear and remove resolved ticket ${req.ticket_id} from your dashboard?`)) return;
+    setDeleting(true);
+    try {
+      const { ok, data } = await api(`/api/requests/${req.id}`, { method: 'DELETE' });
+      if (ok) {
+        if (onRefresh) onRefresh();
+      } else {
+        alert(data?.error || 'Could not clear ticket.');
+      }
+    } catch (err) {
+      alert(err.message || 'Error clearing ticket.');
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  return (
+    <div className="bg-white/70 backdrop-blur-lg border border-white/80 hover:bg-white/90 hover:border-white shadow-[0_4px_16px_rgba(0,0,0,0.06),inset_0_1px_0_rgba(255,255,255,0.8)] rounded-xl sm:rounded-2xl p-3.5 sm:p-4 transition-all duration-200 fade-in mb-4 font-sans text-stone-900">
+      {/* Header row */}
+      <div className="flex flex-wrap items-start justify-between gap-2 mb-3">
+        <div>
+          <div className="flex items-center gap-2">
+            <p className="font-mono font-semibold tabular-nums text-emerald-950 text-sm tracking-wide">{req.ticket_id}</p>
+            <CopyTicketButton ticketId={req.ticket_id} />
+          </div>
+          <p className="text-xs text-stone-400 mt-0.5 font-mono tabular-nums">Submitted {fmtDate(req.created_at)}</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <StatusBadge status={req.status} />
+          <PriorityBadge priority={req.priority} />
+          {req.status === 'Resolved' && (
+            <button
+              type="button"
+              onClick={handleDismiss}
+              disabled={deleting}
+              title="Clear / Dismiss resolved ticket"
+              className="p-1 text-stone-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition border border-transparent hover:border-rose-200 disabled:opacity-50"
+              aria-label="Clear resolved ticket"
+            >
+              <IconTrash className="w-4 h-4" />
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Core metadata */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2 text-sm mb-3">
+        <div>
+          <p className="text-xs text-stone-500 font-medium">Service Category</p>
+          <div className="flex items-center gap-1.5 font-display font-semibold text-stone-900">
+            <CategoryIcon category={req.category} className="w-4 h-4 text-emerald-700" />
+            <span>{req.category}</span>
+          </div>
+        </div>
+        <div>
+          <p className="text-xs text-stone-500 font-medium">Location / Ward</p>
+          <p className="font-semibold text-stone-900">{req.location}</p>
+        </div>
+        <div className="sm:col-span-2">
+          <p className="text-xs text-stone-500 font-medium mb-1">Auto-Assigned County Agency</p>
+          <span className="bg-emerald-900 text-white text-xs px-3 py-1 rounded-full font-semibold">{req.assigned_unit}</span>
+        </div>
+      </div>
+
+      {/* 3-step progress stepper */}
+      <ProgressStepper status={req.status} />
+
+      {/* Official admin remarks */}
+      {req.admin_remarks && (
+        <div className="mt-3 p-3 bg-emerald-50 border border-emerald-200 rounded-xl fade-in">
+          <p className="text-xs font-bold text-emerald-900 mb-1 flex items-center gap-1.5 font-display">
+            <IconInfo className="w-3.5 h-3.5 text-emerald-700" />
+            Official County Remarks
+          </p>
+          <p className="text-sm text-emerald-950 leading-relaxed font-sans">{req.admin_remarks}</p>
+          <p className="text-xs text-emerald-700 mt-1.5 font-mono tabular-nums">Last updated: {fmtDate(req.updated_at)}</p>
+        </div>
+      )}
+
+      {/* Optional photo evidence thumbnail → lightbox */}
+      {req.image_url && (
+        <div className="mt-3">
+          <p className="text-xs text-stone-500 mb-1.5 font-medium">Photo Evidence</p>
+          <img
+            src={req.image_url} alt="Uploaded evidence"
+            onClick={() => setLightbox(req.image_url)}
+            className="w-24 h-24 object-cover rounded-xl border-2 border-stone-200 cursor-pointer
+                       hover:border-emerald-600 hover:shadow-md transition-all"
+            title="Click to view full size"
+          />
+          <p className="text-xs text-stone-500 mt-1">Click to expand</p>
+        </div>
+      )}
+
+      {/* Citizen satisfaction rating (only when Resolved) */}
+      {req.status === 'Resolved' && (
+        <div className="mt-3 pt-3 border-t border-stone-100">
+          <StarRatingInput reqId={req.id} currentRating={req.citizen_rating} onRated={onRefresh} />
+        </div>
+      )}
+
+      {lightbox && <Lightbox src={lightbox} onClose={() => setLightbox(null)} />}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════ */
+/*  SUBMIT REQUEST FORM (Citizen)                                               */
+/* ═══════════════════════════════════════════════════════════════════════════ */
+function SubmitRequestForm({ user, onSubmitted, onEmailToast }) {
+  const fileRef = useRef();
+  const [form, setForm] = useState({
+    category: '', sub_county: user?.sub_county || '', location: '', description: '', priority: 'Normal',
+  });
+  const [file,    setFile]    = useState(null);
+
+  useEffect(() => {
+    if (user?.sub_county) {
+      setForm(f => ({ ...f, sub_county: user.sub_county }));
+    }
+  }, [user?.sub_county]);
+  const [loading, setLoading] = useState(false);
+  const [error,   setError]   = useState('');
+  const [success, setSuccess] = useState('');
+  const [createdTicket, setCreatedTicket] = useState(null);
+
+  function handleFile(e) {
+    const f = e.target.files[0];
+    if (!f) return;
+    if (f.size > 5 * 1024 * 1024) {
+      setError('Image must be under 5 MB. Please choose a smaller file.');
+      e.target.value = '';
+      return;
+    }
+    setFile(f); setError('');
+  }
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    setError(''); setSuccess(''); setCreatedTicket(null);
+
+    if (!form.category || !form.sub_county) { setError('Please select a Category and Sub-County.'); return; }
+    if (!form.location.trim() || form.location.trim().length < 5) { setError('Location must be at least 5 characters.'); return; }
+    if (!form.description.trim() || form.description.trim().length < 10) { setError('Description must be at least 10 characters.'); return; }
+
+    const fd = new FormData();
+    Object.entries(form).forEach(([k, v]) => fd.append(k, v));
+    if (file) fd.append('image', file);
+
+    setLoading(true);
+    const { ok, data } = await api('/api/requests', { method: 'POST', body: fd });
+    setLoading(false);
+
+    if (ok) {
+      setCreatedTicket(data.request.ticket_id);
+      setSuccess(`Request submitted successfully! Save your Ticket ID for tracking.`);
+      setForm({ category: '', sub_county: user.sub_county || '', location: '', description: '', priority: 'Normal' });
+      setFile(null);
+      if (fileRef.current) fileRef.current.value = '';
+      if (data.email_notification && onEmailToast) {
+        onEmailToast(data.email_notification);
+      }
+      onSubmitted && onSubmitted(data.request);
+    } else {
+      const msgs = data.details ? data.details.join(' ') : data.error;
+      setError(msgs || 'Submission failed. Please try again.');
+    }
+  }
+
+  const inp = "w-full bg-white/70 backdrop-blur-md border border-stone-200/80 focus:bg-white focus:border-emerald-600 focus:ring-4 focus:ring-emerald-500/15 text-stone-900 placeholder-stone-400 rounded-xl px-4 py-3 text-base sm:text-sm min-h-[44px] font-sans outline-none shadow-xs transition-all";
+  const lbl = "block text-xs font-semibold text-stone-800 mb-1 font-sans";
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-4 font-sans">
+      <Alert type="error"   msg={error}   onClose={() => setError('')} />
+      <Alert type="success" msg={success} onClose={() => { setSuccess(''); setCreatedTicket(null); }} />
+
+      {createdTicket && (
+        <div className="bg-emerald-50 border border-emerald-300 text-emerald-950 p-3.5 rounded-xl flex items-center justify-between gap-3 fade-in shadow-xs">
+          <div>
+            <p className="text-[11px] font-semibold text-emerald-800 uppercase tracking-wide">Your New Ticket ID</p>
+            <p className="font-mono font-bold text-base text-emerald-950 mt-0.5 tabular-nums">{createdTicket}</p>
+          </div>
+          <CopyTicketButton ticketId={createdTicket} />
+        </div>
+      )}
+
+      {/* Category */}
+      <div>
+        <label className={lbl}>Service Category <span className="text-red-500">*</span></label>
+        <select className={inp} value={form.category} onChange={e => setForm(f => ({...f, category: e.target.value}))} required>
+          <option value="">— Select Category —</option>
+          {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+        </select>
+      </div>
+
+      {/* Sub-County */}
+      <div>
+        <label className={lbl}>Sub-County <span className="text-red-500">*</span></label>
+        <select className={inp} value={form.sub_county} onChange={e => setForm(f => ({...f, sub_county: e.target.value}))} required>
+          <option value="">— Select Sub-County —</option>
+          {SUB_COUNTIES.map(s => <option key={s} value={s}>{s}</option>)}
+        </select>
+      </div>
+
+      {/* Location */}
+      <div>
+        <label className={lbl}>Specific Location / Ward / Landmark <span className="text-red-500">*</span></label>
+        <input className={inp} placeholder="e.g., Mukuyu Market Stage, near KCB Bank Murang'a"
+          value={form.location} onChange={e => setForm(f => ({...f, location: e.target.value}))} required />
+      </div>
+
+      {/* Priority selector pills - 3 column mobile grid */}
+      <div>
+        <label className={lbl}>Priority Level</label>
+        <div className="grid grid-cols-3 gap-2">
+          {PRIORITIES.map(p => {
+            const active = form.priority === p;
+            const style  = active
+              ? (p==='Urgent' ? 'bg-red-600 border-red-600 text-white shadow-sm'
+                : p==='High'  ? 'bg-amber-600 border-amber-600 text-white shadow-sm'
+                              : 'bg-emerald-900 border-emerald-900 text-white shadow-sm')
+              : 'border-stone-200/80 text-stone-700 hover:border-emerald-600 bg-white/70 backdrop-blur-md shadow-xs';
+            return (
+              <label key={p} className={`w-full text-center py-2.5 px-1 rounded-xl border text-xs sm:text-sm font-bold font-sans cursor-pointer transition-all flex items-center justify-center gap-1.5 min-h-[44px] ${style}`}>
+                <input type="radio" name="priority" value={p} className="sr-only"
+                  checked={active} onChange={() => setForm(f => ({...f, priority: p}))} />
+                <span className={`w-2 h-2 rounded-full ${active ? 'bg-white' : p==='Urgent'?'bg-red-500':p==='High'?'bg-amber-500':'bg-stone-400'}`} />
+                {p}
+              </label>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Description */}
+      <div>
+        <label className={lbl}>Detailed Description <span className="text-red-500">*</span>
+          <span className="font-normal text-stone-400 ml-1 font-mono text-[11px]">(min. 10 chars)</span>
+        </label>
+        <textarea className={inp} rows={4}
+          placeholder="Describe the issue clearly — how long it has existed, how many residents are affected, any safety hazards, nearby landmarks…"
+          value={form.description} onChange={e => setForm(f => ({...f, description: e.target.value}))} required />
+        <p className="text-right text-xs text-stone-400 mt-0.5 font-mono tabular-nums">{form.description.length}/1000</p>
+      </div>
+
+      {/* Photo Evidence with Direct Camera / Gallery Capture */}
+      <div>
+        <label className={lbl}>
+          Photo Evidence <span className="font-normal text-stone-500">(optional · PNG/JPG/WEBP · max 5 MB)</span>
+        </label>
+        <input
+          ref={fileRef}
+          type="file"
+          accept="image/png,image/jpeg,image/webp"
+          onChange={handleFile}
+          className="sr-only"
+          id="photo-evidence-upload"
+        />
+        <button
+          type="button"
+          onClick={() => fileRef.current && fileRef.current.click()}
+          className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl border border-dashed border-emerald-600/50 bg-emerald-50/50 text-emerald-900 font-medium text-sm active:scale-[0.99] transition min-h-[48px] hover:bg-emerald-100/60"
+        >
+          <IconCamera className="w-4 h-4 text-emerald-700 shrink-0" />
+          <span className="truncate">Tap to Take Photo or Upload Evidence (Max 5MB)</span>
+        </button>
+        {file && (
+          <div className="mt-2 p-2.5 rounded-xl bg-emerald-100/70 border border-emerald-300/80 flex items-center justify-between text-xs text-emerald-950 font-mono">
+            <span className="flex items-center gap-1.5 truncate">
+              <IconCheckCircle className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
+              <span className="truncate">{file.name} ({(file.size/1024).toFixed(0)} KB)</span>
+            </span>
+            <button
+              type="button"
+              onClick={() => { setFile(null); if (fileRef.current) fileRef.current.value = ''; }}
+              className="text-stone-500 hover:text-red-700 font-bold ml-2 px-1 text-sm"
+              title="Remove photo"
+            >
+              ✕
+            </button>
+          </div>
+        )}
+      </div>
+
+      <button type="submit" disabled={loading}
+        className="w-full bg-emerald-700 hover:bg-emerald-800 active:bg-emerald-900
+          text-white font-display font-bold py-3 rounded-xl transition-all
+          disabled:opacity-50 disabled:cursor-not-allowed
+          flex items-center justify-center gap-2 text-sm shadow-sm">
+        {loading
+          ? <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> Submitting…</>
+          : <><IconSend className="w-4 h-4" /> Submit Service Request</>}
+      </button>
+    </form>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════ */
+/*  PUBLIC TICKET TRACKER                                                        */
+/* ═══════════════════════════════════════════════════════════════════════════ */
+function TicketTracker() {
+  const [ticketId, setTicketId] = useState('');
+  const [result,   setResult]   = useState(null);
+  const [error,    setError]    = useState('');
+  const [loading,  setLoading]  = useState(false);
+
+  const clearTracker = () => {
+    setTicketId('');
+    setResult(null);
+    setError('');
+  };
+
+  async function track(e) {
+    e && e.preventDefault();
+    const id = ticketId.trim().toUpperCase();
+    if (!id) return;
+    setLoading(true); setError(''); setResult(null);
+    const { ok, data } = await api(`/api/requests/track/${encodeURIComponent(id)}`);
+    setLoading(false);
+    if (ok) setResult(data.ticket);
+    else setError(data.error || 'Ticket not found. Please verify the Ticket ID.');
+  }
+
+  return (
+    <div className="max-w-2xl mx-auto font-sans w-full">
+      <form onSubmit={track} className="flex flex-col sm:flex-row gap-2.5 w-full max-w-xl mx-auto">
+        <div className="relative w-full flex-1">
+          <input
+            value={ticketId}
+            onChange={e => {
+              setTicketId(e.target.value.toUpperCase());
+              if (error) setError('');
+            }}
+            placeholder="Enter Ticket ID e.g.  MCG-021-2026-A3F7"
+            className="w-full bg-white/15 border-2 border-white/40 text-white placeholder-emerald-100
+              rounded-2xl pl-4 pr-11 py-3 font-mono font-medium tabular-nums text-base sm:text-sm min-h-[48px]
+              focus:outline-none focus:border-amber-400 focus:bg-white/20 transition"
+          />
+          {ticketId && (
+            <button
+              type="button"
+              onClick={clearTracker}
+              title="Clear Ticket ID and search"
+              aria-label="Clear Ticket ID and search"
+              className="absolute right-3 top-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-white/20 hover:bg-white/35 text-white/80 hover:text-white flex items-center justify-center transition shadow-xs"
+            >
+              <IconX className="w-4 h-4" />
+            </button>
+          )}
+        </div>
+        <button type="submit" disabled={loading || !ticketId.trim()}
+          className="w-full sm:w-auto min-h-[48px] bg-amber-500 hover:bg-amber-400 text-stone-900 font-display font-bold px-6 py-3 rounded-2xl
+            transition-all disabled:opacity-60 whitespace-nowrap text-base sm:text-sm flex items-center justify-center gap-2 shadow shrink-0">
+          {loading ? '…' : <><IconSearch className="w-4 h-4 text-stone-950" /> Track Ticket</>}
+        </button>
+      </form>
+
+      {error && (
+        <div className="mt-3 text-red-100 text-sm bg-red-950/60 border border-red-500/40 rounded-xl p-3 flex items-center justify-between gap-2 font-sans fade-in">
+          <div className="flex items-center gap-2">
+            <IconAlertCircle className="w-4 h-4 flex-shrink-0" />
+            <span>{error}</span>
+          </div>
+          <button
+            type="button"
+            onClick={clearTracker}
+            className="text-red-200 hover:text-white p-1 rounded-md"
+            title="Dismiss error"
+          >
+            <IconX className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
+
+      {result && (
+        <div className="mt-4 bg-white rounded-2xl p-5 text-stone-900 card-shadow fade-in relative">
+          {/* Ticket header */}
+          <div className="flex flex-wrap items-start justify-between gap-2 mb-2 pr-8 sm:pr-0">
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <p className="font-mono font-semibold tabular-nums text-emerald-950 text-lg tracking-wide">{result.ticket_id}</p>
+                <CopyTicketButton ticketId={result.ticket_id} />
+              </div>
+              <div className="flex items-center gap-1.5 text-xs text-stone-600 mt-1">
+                <CategoryIcon category={result.category} className="w-3.5 h-3.5 text-emerald-700" />
+                <span className="font-medium">{result.category}</span>
+                <span>·</span>
+                <span>{result.sub_county} Sub-County</span>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="flex gap-2 flex-wrap">
+                <StatusBadge status={result.status} />
+                <PriorityBadge priority={result.priority} />
+              </div>
+              <button
+                type="button"
+                onClick={clearTracker}
+                title="Clear and close this ticket search"
+                aria-label="Clear and close this ticket search"
+                className="text-stone-400 hover:text-stone-700 bg-stone-100 hover:bg-stone-200 rounded-full p-1.5 transition ml-1"
+              >
+                <IconX className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+
+          {/* Progress stepper */}
+          <ProgressStepper status={result.status} />
+
+          {/* Details grid */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-2 text-sm font-sans">
+            <div className="bg-stone-50 rounded-xl p-3 border border-stone-100">
+              <p className="text-xs text-stone-500 font-medium mb-0.5">Location</p>
+              <p className="font-semibold text-stone-900">{result.location}</p>
+            </div>
+            <div className="bg-emerald-50 rounded-xl p-3 border border-emerald-100">
+              <p className="text-xs text-emerald-800 font-medium mb-0.5">Assigned Agency</p>
+              <p className="font-display font-bold text-emerald-950 text-xs">{result.assigned_unit}</p>
+            </div>
+          </div>
+
+          {/* Admin remarks */}
+          {result.admin_remarks && (
+            <div className="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-xl">
+              <p className="text-xs font-bold text-amber-900 mb-1 flex items-center gap-1.5 font-display">
+                <IconInfo className="w-3.5 h-3.5 text-amber-700" />
+                Official County Update:
+              </p>
+              <p className="text-sm text-amber-950 font-sans">{result.admin_remarks}</p>
+            </div>
+          )}
+
+          {/* Citizen rating display */}
+          {result.citizen_rating && (
+            <div className="mt-2 flex items-center gap-1 font-sans">
+              <span className="text-xs text-stone-600">Citizen rating:</span>
+              <span className="text-amber-500">{'★'.repeat(result.citizen_rating)}{'☆'.repeat(5-result.citizen_rating)}</span>
+              <span className="text-xs text-stone-500 font-mono tabular-nums">({result.citizen_rating}/5)</span>
+            </div>
+          )}
+
+          <p className="text-xs text-stone-500 mt-3 border-t border-stone-100 pt-2 font-mono tabular-nums">
+            Submitted: {fmtDate(result.created_at)} · Last updated: {fmtDate(result.updated_at)}
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════ */
+/*  AUTH CARD  (Sign In + Register + Forgot/Reset Password + Demo Buttons)      */
+/* ═══════════════════════════════════════════════════════════════════════════ */
+function AuthCard({ onLogin }) {
+  const [authMode,    setAuthMode]    = useState('login'); // 'login' | 'register' | 'forgot' | 'reset'
+  const [login,       setLogin]       = useState({ email: '', password: '' });
+  const [reg,         setReg]         = useState({ full_name: '', email: '', phone: '', sub_county: 'Kiharu', password: '' });
+  const [forgotEmail, setForgotEmail] = useState('');
+  const [resetData,   setResetData]   = useState({ email: '', otp_code: '', new_password: '', confirm_password: '' });
+  const [loading,     setLoading]     = useState(false);
+  const [error,       setError]       = useState('');
+  const [success,     setSuccess]     = useState('');
+
+  async function doLogin(email, password) {
+    setLoading(true); setError(''); setSuccess('');
+    const { ok, data } = await api('/api/auth/login', {
+      method: 'POST', body: JSON.stringify({ email, password }),
+    });
+    setLoading(false);
+    if (ok) onLogin(data.user);
+    else setError(data.error || 'Login failed. Please check your credentials.');
+  }
+
+  async function handleLogin(e) {
+    e.preventDefault();
+    await doLogin(login.email, login.password);
+  }
+
+  async function handleRegister(e) {
+    e.preventDefault();
+    setLoading(true); setError(''); setSuccess('');
+    const { ok, data } = await api('/api/auth/register', {
+      method: 'POST', body: JSON.stringify(reg),
+    });
+    setLoading(false);
+    if (ok) onLogin(data.user);
+    else setError(data.details ? data.details.join(' ') : data.error || 'Registration failed.');
+  }
+
+  async function handleForgotPassword(e) {
+    e.preventDefault();
+    const emailToUse = (forgotEmail || login.email).trim();
+    if (!emailToUse) {
+      setError('Please provide your registered email address.');
+      return;
+    }
+    setLoading(true); setError(''); setSuccess('');
+    const { ok, data } = await api('/api/auth/forgot-password', {
+      method: 'POST', body: JSON.stringify({ email: emailToUse }),
+    });
+    setLoading(false);
+    if (ok) {
+      setResetData(f => ({ ...f, email: emailToUse, otp_code: '', new_password: '', confirm_password: '' }));
+      setSuccess(data.message || 'A 6-digit verification code has been sent to your email.');
+      setAuthMode('reset');
+    } else {
+      setError(data.error || 'Failed to send verification code. Please try again.');
+    }
+  }
+
+  async function handleResetPassword(e) {
+    e.preventDefault();
+    if (!resetData.otp_code || resetData.otp_code.trim().length !== 6) {
+      setError('Please enter the complete 6-digit verification code.');
+      return;
+    }
+    if (!resetData.new_password || resetData.new_password.length < 6) {
+      setError('New password must be at least 6 characters long.');
+      return;
+    }
+    if (resetData.new_password !== resetData.confirm_password) {
+      setError('New passwords do not match. Please re-enter.');
+      return;
+    }
+
+    setLoading(true); setError(''); setSuccess('');
+    const { ok, data } = await api('/api/auth/reset-password', {
+      method: 'POST',
+      body: JSON.stringify({
+        email: resetData.email,
+        otp_code: resetData.otp_code.trim(),
+        new_password: resetData.new_password,
+      }),
+    });
+    setLoading(false);
+    if (ok) {
+      setSuccess(data.message || 'Password reset successful! You can now sign in with your new password.');
+      setLogin(f => ({ ...f, email: resetData.email, password: '' }));
+      setAuthMode('login');
+    } else {
+      setError(data.error || 'Password reset failed. Please check the code and try again.');
+    }
+  }
+
+  const inp = "w-full bg-white/70 backdrop-blur-md border border-stone-200/80 focus:bg-white focus:border-emerald-600 focus:ring-4 focus:ring-emerald-500/15 text-stone-900 placeholder-stone-400 rounded-xl px-4 py-3 text-base sm:text-sm min-h-[44px] font-sans outline-none shadow-xs transition-all";
+  const lbl = "block text-xs font-semibold text-stone-800 mb-1 font-sans";
+
+  return (
+    <div className="max-w-xl mx-auto w-full font-sans">
+      {/* ── Quick Evaluator Demo Login Card (iOS Accent Tile) ────────────────── */}
+      <div className="bg-amber-50/80 backdrop-blur-2xl backdrop-saturate-150 border border-amber-200/70 shadow-[0_8px_24px_rgba(245,158,11,0.08),inset_0_1px_1px_rgba(255,255,255,0.9)] rounded-2xl sm:rounded-3xl p-4 sm:p-6 mb-4 sm:mb-6 text-stone-900">
+        <div className="mb-2">
+          <p className="text-sm font-display font-bold text-amber-950 uppercase tracking-wide">
+            Quick Evaluator Demo Login
+          </p>
+        </div>
+        <p className="text-xs text-amber-800/90 mb-3.5 leading-relaxed font-sans font-medium">
+          Click to instantly log in with pre-seeded credentials — no typing needed.
+        </p>
+
+        {/* Two demo login buttons side-by-side in grid */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 sm:gap-3">
+          <button
+            type="button"
+            onClick={() => doLogin('wanjiku@gmail.com', 'Citizen@2026')}
+            disabled={loading}
+            className="w-full bg-emerald-950/90 hover:bg-emerald-900 text-white border border-emerald-700/40 shadow-sm rounded-xl py-3 px-3.5 sm:px-4 transition active:scale-[0.99] text-xs sm:text-sm font-semibold disabled:opacity-50 flex items-center gap-2.5 group text-left min-h-[48px]"
+          >
+            <div className="w-7 h-7 rounded-lg bg-emerald-950/80 text-amber-400 flex items-center justify-center shrink-0 border border-amber-400/30">
+              <IconUsers className="w-4 h-4" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-bold text-white group-hover:text-amber-200 transition-colors truncate">
+                Citizen: Mary Wanjiku
+              </p>
+              <p className="text-[10px] text-amber-300/90 font-mono">
+                Citizen@2026
+              </p>
+            </div>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => doLogin('admin@muranga.go.ke', 'Admin@2026')}
+            disabled={loading}
+            className="w-full bg-emerald-950/90 hover:bg-emerald-900 text-white border border-emerald-700/40 shadow-sm rounded-xl py-3 px-3.5 sm:px-4 transition active:scale-[0.99] text-xs sm:text-sm font-semibold disabled:opacity-50 flex items-center gap-2.5 group text-left min-h-[48px]"
+          >
+            <div className="w-7 h-7 rounded-lg bg-emerald-950/80 text-amber-400 flex items-center justify-center shrink-0 border border-amber-400/30">
+              <IconShield className="w-4 h-4" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-bold text-white group-hover:text-amber-200 transition-colors truncate">
+                County Admin: Officer Kamau
+              </p>
+              <p className="text-[10px] text-amber-300/90 font-mono">
+                Admin@2026
+              </p>
+            </div>
+          </button>
+        </div>
+      </div>
+
+      {/* ── Sign In / Register Card (iOS Liquid Glass Material) ──────────────── */}
+      <div className="max-w-lg mx-auto w-full bg-white/85 backdrop-blur-2xl backdrop-saturate-180 border border-white/60 shadow-[0_12px_40px_rgba(0,0,0,0.15),inset_0_1px_1px_rgba(255,255,255,0.9)] rounded-2xl sm:rounded-3xl overflow-hidden transition-all duration-300">
+        {/* Tab switcher */}
+        <div className="flex border-b border-stone-200/80">
+          {(authMode === 'login' || authMode === 'register') ? (
+            [{ id:'login', label:'Sign In' }, { id:'register', label:'Register' }].map(t => (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => { setAuthMode(t.id); setError(''); setSuccess(''); }}
+                className={`flex-1 py-3.5 text-sm font-display font-bold transition-all min-h-[44px]
+                  ${authMode===t.id ? 'bg-emerald-900 text-white' : 'text-stone-600 hover:bg-stone-50'}`}>
+                {t.label}
+              </button>
+            ))
+          ) : (
+            <div className="flex-1 py-3 px-4 bg-emerald-900 text-white flex items-center justify-between min-h-[44px]">
+              <div className="flex items-center gap-2">
+                <IconKey className="w-4 h-4 text-amber-400" />
+                <span className="font-display font-bold text-sm">
+                  {authMode === 'forgot' ? 'Forgot Password' : 'Set New Password'}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => { setAuthMode('login'); setError(''); setSuccess(''); }}
+                className="text-xs text-amber-300 hover:text-white transition font-medium flex items-center gap-1 min-h-[44px]"
+              >
+                Cancel & Return
+              </button>
+            </div>
+          )}
+        </div>
+
+        <div className="p-4 sm:p-6">
+          <Alert type="error" msg={error} onClose={() => setError('')} />
+          <Alert type="success" msg={success} onClose={() => setSuccess('')} />
+
+          {authMode === 'login' && (
+            /* ── Sign In Form ── */
+            <div>
+              <form onSubmit={handleLogin} className="space-y-4">
+                <div>
+                  <label className={lbl}>Email Address</label>
+                  <input
+                    type="email"
+                    className={inp}
+                    placeholder="your@email.com"
+                    value={login.email}
+                    onChange={e => setLogin(f => ({...f, email: e.target.value}))}
+                    required
+                  />
+                </div>
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-xs font-semibold text-stone-800 font-sans">Password</label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setForgotEmail(login.email);
+                        setAuthMode('forgot');
+                        setError('');
+                        setSuccess('');
+                      }}
+                      className="text-xs font-semibold text-emerald-700 hover:text-emerald-900 transition"
+                    >
+                      Forgot password?
+                    </button>
+                  </div>
+                  <PasswordInput
+                    value={login.password}
+                    onChange={e => setLogin(f => ({...f, password: e.target.value}))}
+                    placeholder="••••••••"
+                    required
+                    autoComplete="current-password"
+                  />
+                </div>
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="w-full bg-emerald-700 hover:bg-emerald-800 text-white font-display font-bold py-3 rounded-xl transition disabled:opacity-50 text-sm shadow-sm"
+                >
+                  {loading ? 'Signing in…' : 'Sign In to Huduma Murang\'a →'}
+                </button>
+              </form>
+
+              {/* Footer Prompt */}
+              <div className="mt-5 pt-4 border-t border-stone-200/80 text-center text-xs text-stone-600">
+                <span>Don't have an account yet? </span>
+                <button
+                  type="button"
+                  onClick={() => { setAuthMode('register'); setError(''); setSuccess(''); }}
+                  className="text-emerald-800 hover:underline font-semibold"
+                >
+                  Create a Citizen Account
+                </button>
+              </div>
+            </div>
+          )}
+
+          {authMode === 'register' && (
+            /* ── Registration Form ── */
+            <div>
+              <form onSubmit={handleRegister} className="space-y-3">
+                <div>
+                  <label className={lbl}>Full Name <span className="text-red-500">*</span></label>
+                  <input
+                    className={inp}
+                    placeholder="e.g., Jane Wambui Mwangi"
+                    value={reg.full_name}
+                    onChange={e => setReg(f => ({...f, full_name: e.target.value}))}
+                    required
+                  />
+                </div>
+                <div>
+                  <label className={lbl}>Email Address <span className="text-red-500">*</span></label>
+                  <input
+                    type="email"
+                    className={inp}
+                    placeholder="your@email.com"
+                    value={reg.email}
+                    onChange={e => setReg(f => ({...f, email: e.target.value}))}
+                    required
+                  />
+                </div>
+                <div>
+                  <label className={lbl}>Phone Number <span className="text-red-500">*</span></label>
+                  <input
+                    className={inp}
+                    placeholder="0712 345 678"
+                    value={reg.phone}
+                    onChange={e => setReg(f => ({...f, phone: e.target.value}))}
+                    required
+                  />
+                </div>
+                <div>
+                  <label className={lbl}>Sub-County <span className="text-red-500">*</span></label>
+                  <select
+                    className={inp}
+                    value={reg.sub_county}
+                    onChange={e => setReg(f => ({...f, sub_county: e.target.value}))}
+                    required
+                  >
+                    {SUB_COUNTIES.map(s => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className={lbl}>
+                    Password <span className="text-red-500">*</span>
+                    <span className="font-normal text-stone-500 ml-1 font-mono text-[11px]">(min. 6 characters)</span>
+                  </label>
+                  <PasswordInput
+                    value={reg.password}
+                    onChange={e => setReg(f => ({...f, password: e.target.value}))}
+                    placeholder="Choose a strong password"
+                    required
+                    autoComplete="new-password"
+                  />
+                  <PasswordRequirements password={reg.password} />
+                </div>
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="w-full bg-emerald-700 hover:bg-emerald-800 text-white font-display font-bold py-3 rounded-xl transition disabled:opacity-50 text-sm mt-1 shadow-sm"
+                >
+                  {loading ? 'Creating account…' : 'Create Citizen Account →'}
+                </button>
+              </form>
+
+              {/* Footer Prompt */}
+              <div className="mt-5 pt-4 border-t border-stone-200/80 text-center text-xs text-stone-600">
+                <span>Already have an account? </span>
+                <button
+                  type="button"
+                  onClick={() => { setAuthMode('login'); setError(''); setSuccess(''); }}
+                  className="text-emerald-800 hover:underline font-semibold"
+                >
+                  Sign In here
+                </button>
+              </div>
+            </div>
+          )}
+
+          {authMode === 'forgot' && (
+            /* ── Step 1: Request Reset Code ── */
+            <div>
+              <div className="text-center mb-5">
+                <div className="w-12 h-12 rounded-2xl bg-emerald-100 text-emerald-800 flex items-center justify-center mx-auto mb-2 border border-emerald-200 shadow-sm">
+                  <IconKey className="w-6 h-6 text-emerald-800" />
+                </div>
+                <h3 className="font-display font-bold text-lg text-emerald-950">Reset Your Password</h3>
+                <p className="text-xs text-stone-600 mt-1 max-w-xs mx-auto">
+                  Enter your registered email address to receive a secure 6-digit verification code.
+                </p>
+              </div>
+
+              <form onSubmit={handleForgotPassword} className="space-y-4">
+                <div>
+                  <label className={lbl}>Registered Email Address</label>
+                  <input
+                    type="email"
+                    className={inp}
+                    placeholder="your@email.com"
+                    value={forgotEmail}
+                    onChange={e => setForgotEmail(e.target.value)}
+                    required
+                  />
+                </div>
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="w-full bg-emerald-700 hover:bg-emerald-800 text-white font-display font-bold py-3 rounded-xl transition disabled:opacity-50 text-sm shadow-sm flex items-center justify-center gap-2"
+                >
+                  {loading ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      Sending Code…
+                    </>
+                  ) : (
+                    <>
+                      <IconSend className="w-4 h-4" />
+                      Send 6-Digit Reset Code →
+                    </>
+                  )}
+                </button>
+                <div className="text-center pt-2">
+                  <button
+                    type="button"
+                    onClick={() => { setAuthMode('login'); setError(''); setSuccess(''); }}
+                    className="text-xs font-semibold text-stone-600 hover:text-emerald-900 transition"
+                  >
+                    ← Back to Sign In
+                  </button>
+                </div>
+              </form>
+            </div>
+          )}
+
+          {authMode === 'reset' && (
+            /* ── Step 2: Verify OTP & Set New Password ── */
+            <div>
+              <div className="text-center mb-5">
+                <div className="w-12 h-12 rounded-2xl bg-amber-100 text-amber-800 flex items-center justify-center mx-auto mb-2 border border-amber-200 shadow-sm">
+                  <IconLock className="w-6 h-6 text-amber-800" />
+                </div>
+                <h3 className="font-display font-bold text-lg text-emerald-950">Set New Password</h3>
+                <p className="text-xs text-stone-600 mt-1 max-w-xs mx-auto">
+                  Enter the 6-digit code sent to <strong className="text-emerald-950 font-mono">{resetData.email}</strong>.
+                </p>
+              </div>
+
+              <form onSubmit={handleResetPassword} className="space-y-3.5">
+                <div>
+                  <label className={lbl}>
+                    6-Digit Verification Code <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    maxLength="6"
+                    required
+                    placeholder="123456"
+                    value={resetData.otp_code}
+                    onChange={e => setResetData(f => ({ ...f, otp_code: e.target.value.replace(/\D/g, '').slice(0, 6) }))}
+                    className={`${inp} font-mono tracking-widest text-center text-lg font-bold placeholder:tracking-normal placeholder:font-normal`}
+                  />
+                  <p className="text-[11px] text-stone-500 mt-1 text-center font-mono">
+                    Code expires in 10 minutes
+                  </p>
+                </div>
+
+                <div>
+                  <label className={lbl}>
+                    New Password <span className="text-red-500">*</span>
+                    <span className="font-normal text-stone-500 ml-1 font-mono text-[11px]">(min. 6 characters)</span>
+                  </label>
+                  <PasswordInput
+                    required
+                    placeholder="••••••••"
+                    value={resetData.new_password}
+                    onChange={e => setResetData(f => ({ ...f, new_password: e.target.value }))}
+                    autoComplete="new-password"
+                  />
+                  <PasswordRequirements password={resetData.new_password} />
+                </div>
+
+                <div>
+                  <label className={lbl}>
+                    Confirm New Password <span className="text-red-500">*</span>
+                  </label>
+                  <PasswordInput
+                    required
+                    placeholder="••••••••"
+                    value={resetData.confirm_password}
+                    onChange={e => setResetData(f => ({ ...f, confirm_password: e.target.value }))}
+                    autoComplete="new-password"
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="w-full bg-emerald-700 hover:bg-emerald-800 text-white font-display font-bold py-3 rounded-xl transition disabled:opacity-50 text-sm shadow-sm flex items-center justify-center gap-2 mt-2"
+                >
+                  {loading ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      Updating Password…
+                    </>
+                  ) : (
+                    <>
+                      <IconCheckCircle className="w-4 h-4" />
+                      Save New Password & Sign In →
+                    </>
+                  )}
+                </button>
+
+                <div className="flex items-center justify-between pt-2 text-xs">
+                  <button
+                    type="button"
+                    onClick={() => { setAuthMode('forgot'); setError(''); setSuccess(''); }}
+                    className="font-medium text-emerald-800 hover:underline"
+                  >
+                    Resend Code
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setAuthMode('login'); setError(''); setSuccess(''); }}
+                    className="font-medium text-stone-600 hover:text-emerald-900"
+                  >
+                    Cancel & Return to Sign In
+                  </button>
+                </div>
+              </form>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════ */
+/*  CITIZEN PORTAL                                                               */
+/* ═══════════════════════════════════════════════════════════════════════════ */
+function CitizenPortal({ user, onEmailToast }) {
+  const [requests, setRequests] = useState([]);
+  const [loading,  setLoading]  = useState(true);
+  const [clearing, setClearing] = useState(false);
+
+  const fetchRequests = useCallback(async () => {
+    setLoading(true);
+    const { ok, data } = await api('/api/requests');
+    if (ok) setRequests(data.requests);
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { fetchRequests(); }, [fetchRequests]);
+
+  const resolvedCount = requests.filter(r => r.status === 'Resolved').length;
+
+  const handleClearResolved = async () => {
+    if (!confirm(`Are you sure you want to clear and remove ${resolvedCount} addressed/resolved ticket${resolvedCount > 1 ? 's' : ''}?`)) return;
+    setClearing(true);
+    try {
+      const { ok, data } = await api('/api/requests/clear-resolved', { method: 'DELETE' });
+      if (ok) {
+        fetchRequests();
+      } else {
+        alert(data?.error || 'Could not clear resolved tickets.');
+      }
+    } catch (err) {
+      alert(err.message || 'Error clearing resolved tickets.');
+    } finally {
+      setClearing(false);
+    }
+  };
+
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 font-sans">
+      {/* ── Left: Submit Form (iOS Liquid Glass Panel) ──────────────────────── */}
+      <div>
+        <div className="bg-white/85 backdrop-blur-2xl backdrop-saturate-180 border border-white/60 shadow-[0_12px_40px_rgba(0,0,0,0.15),inset_0_1px_1px_rgba(255,255,255,0.9)] rounded-2xl sm:rounded-3xl overflow-hidden transition-all duration-300 sticky top-4">
+          <div className="bg-emerald-950/80 backdrop-blur-xl border-b border-white/10 text-white p-4 sm:p-5 flex items-center justify-between shadow-xs">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-lg bg-emerald-950/80 text-amber-400 flex items-center justify-center shrink-0 border border-amber-400/30 shadow-sm">
+                <IconSend className="w-4 h-4" />
+              </div>
+              <div>
+                <h2 className="text-white font-display font-bold text-base sm:text-lg">Submit Service Request</h2>
+                <p className="text-xs text-emerald-200/90 font-medium mt-0.5">Report a public service issue to Murang'a County</p>
+              </div>
+            </div>
+          </div>
+          <div className="p-4 sm:p-6">
+            <SubmitRequestForm user={user} onSubmitted={fetchRequests} onEmailToast={onEmailToast} />
+          </div>
+        </div>
+      </div>
+
+      {/* ── Right: My Requests (iOS Liquid Glass Panel) ──────────────────────── */}
+      <div>
+        <div className="bg-white/85 backdrop-blur-2xl backdrop-saturate-180 border border-white/60 shadow-[0_12px_40px_rgba(0,0,0,0.15),inset_0_1px_1px_rgba(255,255,255,0.9)] rounded-2xl sm:rounded-3xl overflow-hidden transition-all duration-300">
+          <div className="bg-emerald-950/80 backdrop-blur-xl border-b border-white/10 text-white p-4 sm:p-5 flex items-center justify-between shadow-xs">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-lg bg-emerald-950/80 text-amber-400 flex items-center justify-center shrink-0 border border-amber-400/30 shadow-sm">
+                <IconLayers className="w-4 h-4" />
+              </div>
+              <div>
+                <h2 className="text-white font-display font-bold text-base sm:text-lg">My Service Requests</h2>
+                <p className="text-xs text-emerald-200/90 font-medium mt-0.5 font-mono tabular-nums">
+                  {requests.length} request{requests.length !== 1 ? 's' : ''} submitted
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              {resolvedCount > 0 && (
+                <button
+                  type="button"
+                  onClick={handleClearResolved}
+                  disabled={clearing}
+                  title="Clear all addressed/resolved tickets"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-rose-900/80 hover:bg-rose-800 text-rose-200 border border-rose-500/40 hover:border-rose-400 rounded-lg text-xs font-semibold font-display transition disabled:opacity-50 shadow-sm"
+                >
+                  <IconTrash className="w-3.5 h-3.5 text-rose-300" />
+                  <span>Clear Addressed Tickets ({resolvedCount})</span>
+                </button>
+              )}
+              <button
+                onClick={fetchRequests}
+                title="Refresh list"
+                className="text-emerald-200 hover:text-white transition p-1.5 rounded-lg hover:bg-emerald-800/80"
+              >
+                <IconRotateCw className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+          <div className="p-4 sm:p-5 overflow-y-auto" style={{ maxHeight: '78vh' }}>
+            {loading ? <Spinner /> : requests.length === 0 ? (
+              <div className="text-center py-16 text-stone-400">
+                <IconLayers className="w-12 h-12 mx-auto mb-3 text-stone-300" />
+                <p className="font-display font-bold text-stone-600">No requests yet</p>
+                <p className="text-sm mt-1 text-stone-500">Use the form on the left to submit your first service request.</p>
+              </div>
+            ) : (
+              requests.map(r => <TicketCard key={r.id} req={r} onRefresh={fetchRequests} />)
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════ */
+/*  STATUS UPDATE MODAL  (Admin)                                                 */
+/* ═══════════════════════════════════════════════════════════════════════════ */
+function StatusModal({ req, onClose, onUpdated, onEmailToast }) {
+  const [form,    setForm]    = useState({ status: req.status, admin_remarks: req.admin_remarks || '' });
+  const [loading, setLoading] = useState(false);
+  const [error,   setError]   = useState('');
+
+  async function save(e) {
+    e.preventDefault();
+    setLoading(true); setError('');
+    const { ok, data } = await api(`/api/requests/${req.id}/status`, {
+      method: 'PATCH', body: JSON.stringify(form),
+    });
+    setLoading(false);
+    if (ok) {
+      if (data.email_notification && onEmailToast) {
+        onEmailToast(data.email_notification);
+      }
+      onUpdated && onUpdated();
+      onClose();
+    }
+    else setError(data.error || 'Update failed.');
+  }
+
+  const statusStyles = {
+    'Pending':     'border-amber-400 bg-amber-50 text-amber-900',
+    'In Progress': 'border-sky-400 bg-sky-50 text-sky-900',
+    'Resolved':    'border-green-400 bg-green-50 text-green-900',
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/65 z-50 flex items-center justify-center p-4 font-sans"
+      onClick={onClose} role="dialog" aria-modal="true">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg fade-in" onClick={e => e.stopPropagation()}>
+        {/* Modal header with Aberdare Forest Green */}
+        <div className="bg-emerald-900 rounded-t-2xl px-6 py-4 flex items-start justify-between">
+          <div>
+            <p className="text-white font-display font-bold text-base">Update Request Status</p>
+            <div className="flex items-center gap-2 mt-0.5">
+              <p className="text-emerald-200 text-xs font-mono font-medium tabular-nums">{req.ticket_id} · {req.category}</p>
+              <CopyTicketButton ticketId={req.ticket_id} iconOnly={true} className="text-emerald-300 hover:text-white hover:bg-emerald-800/60" />
+            </div>
+            <p className="text-emerald-300 text-xs mt-0.5">{req.location} · {req.sub_county}</p>
+          </div>
+          <button onClick={onClose} className="text-emerald-300 hover:text-white text-2xl leading-none ml-4">✕</button>
+        </div>
+
+        <form onSubmit={save} className="p-6 space-y-5">
+          <Alert type="error" msg={error} />
+
+          {/* Current status display */}
+          <div className="flex items-center gap-2 text-sm font-sans">
+            <span className="text-stone-500">Current:</span>
+            <StatusBadge status={req.status} />
+          </div>
+
+          {/* Status selector */}
+          <div>
+            <p className="text-xs font-semibold text-stone-800 mb-2 font-sans">Select New Status:</p>
+            <div className="grid grid-cols-3 gap-2">
+              {STATUSES.map(s => (
+                <label key={s}
+                  className={`border-2 rounded-xl p-3 text-center cursor-pointer transition-all font-semibold text-sm flex flex-col items-center justify-center gap-1.5
+                    ${form.status === s ? statusStyles[s] : 'border-stone-200 text-stone-500 hover:border-stone-300 bg-white'}`}>
+                  <input type="radio" name="status" value={s} className="sr-only"
+                    checked={form.status === s} onChange={() => setForm(f => ({...f, status: s}))} />
+                  {s === 'Pending' ? <IconClock className="w-4 h-4 text-amber-700" /> : s === 'In Progress' ? <IconRotateCw className="w-4 h-4 text-sky-700" /> : <IconCheckCircle className="w-4 h-4 text-green-700" />}
+                  <span>{s}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          {/* Admin remarks */}
+          <div>
+            <label className="block text-xs font-semibold text-stone-800 mb-1 font-sans">
+              Official County Remarks <span className="font-normal text-stone-400">(shown to citizen)</span>
+            </label>
+            <textarea
+              className="w-full border border-stone-300 rounded-xl px-3 py-2.5 text-sm font-sans
+                focus:ring-2 focus:ring-emerald-600 outline-none transition text-stone-900"
+              rows={4}
+              placeholder="Describe the county's action: team dispatched, timeline, resolution steps…"
+              value={form.admin_remarks}
+              onChange={e => setForm(f => ({...f, admin_remarks: e.target.value}))}
+            />
+          </div>
+
+          {/* Action buttons */}
+          <div className="flex gap-3 pt-1">
+            <button type="button" onClick={onClose}
+              className="flex-1 border border-stone-300 text-stone-700 py-2.5 rounded-xl text-sm hover:bg-stone-50 transition font-semibold font-sans">
+              Cancel
+            </button>
+            <button type="submit" disabled={loading}
+              className="flex-1 bg-emerald-700 hover:bg-emerald-800 text-white font-display font-bold py-2.5 rounded-xl text-sm transition disabled:opacity-50 shadow-sm">
+              {loading ? 'Saving…' : 'Save Update'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════ */
+/*  ANALYTICS KPI STRIP  (Admin top section)                                    */
+/* ═══════════════════════════════════════════════════════════════════════════ */
+function AnalyticsStrip({ analytics }) {
+  if (!analytics) return <Spinner />;
+  const { summary, by_category, by_sub_county } = analytics;
+  const total = Math.max(summary.total_cases, 1);
+
+  return (
+    <div className="space-y-4 font-sans">
+      {/* ── 4 KPI Cards with font-mono tabular-nums counters ──────────────── */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        {/* Total Requests */}
+        <div className="kpi-hover bg-white rounded-2xl p-5 border border-stone-200 text-center card-shadow">
+          <p className="text-4xl font-mono font-bold tabular-nums text-emerald-950">{summary.total_cases}</p>
+          <p className="text-xs font-display font-bold text-stone-700 mt-1 uppercase tracking-wide">Total Requests</p>
+          <p className="text-xs text-stone-400 mt-0.5 font-sans">All time</p>
+        </div>
+
+        {/* Open Cases */}
+        <div className="kpi-hover bg-amber-50/70 rounded-2xl p-5 border border-amber-300 text-center card-shadow">
+          <p className="text-4xl font-mono font-bold tabular-nums text-amber-900">{summary.open_cases}</p>
+          <p className="text-xs font-display font-bold text-amber-950 mt-1 uppercase tracking-wide">Open Cases</p>
+          <p className="text-xs text-amber-800 mt-0.5 font-mono tabular-nums">
+            {summary.pending_cases} Pending · {summary.in_progress_cases} In Progress
+          </p>
+        </div>
+
+        {/* Resolved Cases */}
+        <div className="kpi-hover bg-green-50/70 rounded-2xl p-5 border border-green-300 text-center card-shadow">
+          <p className="text-4xl font-mono font-bold tabular-nums text-green-900">{summary.resolved_cases}</p>
+          <p className="text-xs font-display font-bold text-green-950 mt-1 uppercase tracking-wide">Resolved</p>
+          <p className="text-xs text-green-800 mt-0.5 font-sans">Completed requests</p>
+        </div>
+
+        {/* Resolution Rate + Rating */}
+        <div className="kpi-hover bg-emerald-50/70 rounded-2xl p-5 border border-emerald-300 card-shadow text-center">
+          <p className="text-3xl font-mono font-bold tabular-nums text-emerald-950">{summary.resolution_rate}%</p>
+          <div className="w-full bg-emerald-100 rounded-full h-2 mt-2 mb-1 overflow-hidden">
+            <div className="bg-emerald-600 h-2 rounded-full transition-all duration-700"
+              style={{ width: `${summary.resolution_rate}%` }} />
+          </div>
+          <p className="text-xs font-display font-bold text-emerald-950 uppercase tracking-wide">Resolution Rate</p>
+          {summary.avg_rating && (
+            <p className="text-xs text-amber-600 mt-1.5 font-mono font-semibold tabular-nums">
+              ★ {Number(summary.avg_rating).toFixed(1)} avg rating
+            </p>
+          )}
+        </div>
+      </div>
+
+      {/* ── Category & Sub-County Breakdown ─────────────────────────────── */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* By Category */}
+        {by_category.length > 0 && (
+          <div className="bg-white rounded-2xl p-5 border border-stone-200 card-shadow">
+            <p className="text-xs font-display font-bold text-stone-700 mb-4 uppercase tracking-widest flex items-center gap-1.5">
+              <IconBarChart className="w-4 h-4 text-emerald-700" />
+              Requests by Category
+            </p>
+            <div className="space-y-3">
+              {by_category.map(({ category, count }) => (
+                <div key={category}>
+                  <div className="flex justify-between text-xs mb-1">
+                    <span className="text-stone-800 font-medium flex items-center gap-1.5 font-sans">
+                      <CategoryIcon category={category} className="w-3.5 h-3.5 text-emerald-700" />
+                      {category}
+                    </span>
+                    <span className="font-mono font-semibold tabular-nums text-stone-900">{count}</span>
+                  </div>
+                  <div className="w-full bg-stone-100 rounded-full h-2.5 overflow-hidden">
+                    <div className="bg-emerald-700 h-2.5 rounded-full transition-all duration-500"
+                      style={{ width: `${Math.round(count/total*100)}%` }} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* By Sub-County */}
+        {by_sub_county.length > 0 && (
+          <div className="bg-white rounded-2xl p-5 border border-stone-200 card-shadow">
+            <p className="text-xs font-display font-bold text-stone-700 mb-4 uppercase tracking-widest flex items-center gap-1.5">
+              <IconBarChart className="w-4 h-4 text-amber-600" />
+              Requests by Sub-County
+            </p>
+            <div className="space-y-3">
+              {by_sub_county.map(({ sub_county, count }) => (
+                <div key={sub_county}>
+                  <div className="flex justify-between text-xs mb-1 font-sans">
+                    <span className="text-stone-800 font-medium">{sub_county}</span>
+                    <span className="font-mono font-semibold tabular-nums text-stone-900">{count}</span>
+                  </div>
+                  <div className="w-full bg-stone-100 rounded-full h-2.5 overflow-hidden">
+                    <div className="bg-amber-600 h-2.5 rounded-full transition-all duration-500"
+                      style={{ width: `${Math.round(count/total*100)}%` }} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════ */
+/*  ADMIN TAB 1 — Manage Service Requests                                       */
+/* ═══════════════════════════════════════════════════════════════════════════ */
+function AdminRequestsTab({ onAnalyticsRefresh, onEmailToast }) {
+  const [requests, setRequests] = useState([]);
+  const [loading,  setLoading]  = useState(true);
+  const [clearing, setClearing] = useState(false);
+  const [modal,    setModal]    = useState(null);
+  const [lightbox, setLightbox] = useState(null);
+  const [filters,  setFilters]  = useState({ status: '', category: '', priority: '', sub_county: '', search: '' });
+
+  const fetchRequests = useCallback(async () => {
+    setLoading(true);
+    const p = new URLSearchParams();
+    Object.entries(filters).forEach(([k, v]) => { if (v.trim()) p.set(k, v.trim()); });
+    const qs  = p.toString() ? '?' + p.toString() : '';
+    const { ok, data } = await api(`/api/requests${qs}`);
+    if (ok) setRequests(data.requests);
+    setLoading(false);
+  }, [filters]);
+
+  useEffect(() => { fetchRequests(); }, [fetchRequests]);
+
+  function resetFilters() { setFilters({ status: '', category: '', priority: '', sub_county: '', search: '' }); }
+
+  const resolvedCount = requests.filter(r => r.status === 'Resolved').length;
+
+  async function handleClearAllResolved() {
+    if (!confirm(`Are you sure you want to permanently clear ${resolvedCount} resolved request(s) from the master queue?`)) return;
+    setClearing(true);
+    try {
+      const { ok, data } = await api('/api/requests/clear-resolved', { method: 'DELETE' });
+      if (ok) {
+        fetchRequests();
+        if (onAnalyticsRefresh) onAnalyticsRefresh();
+      } else {
+        alert(data?.error || 'Could not clear resolved issues.');
+      }
+    } catch (err) {
+      alert(err.message || 'Error clearing resolved issues.');
+    } finally {
+      setClearing(false);
+    }
+  }
+
+  async function handleClearSingle(req) {
+    if (!confirm(`Clear and remove resolved ticket ${req.ticket_id} from the database?`)) return;
+    try {
+      const { ok, data } = await api(`/api/requests/${req.id}`, { method: 'DELETE' });
+      if (ok) {
+        fetchRequests();
+        if (onAnalyticsRefresh) onAnalyticsRefresh();
+      } else {
+        alert(data?.error || 'Could not clear ticket.');
+      }
+    } catch (err) {
+      alert(err.message || 'Error clearing ticket.');
+    }
+  }
+
+  const selCls = "border border-stone-300 rounded-xl px-3 py-2 text-base sm:text-xs bg-white focus:ring-2 focus:ring-emerald-600 outline-none font-sans text-stone-900 min-h-[44px] sm:min-h-0";
+  const inpCls = selCls + " w-full";
+
+  return (
+    <div className="space-y-4 font-sans">
+      {/* ── Filter Bar ──────────────────────────────────────────────────── */}
+      <div className="bg-white border border-stone-200 rounded-2xl p-4 card-shadow">
+        <div className="flex flex-wrap gap-3 items-end">
+          <div className="w-full sm:w-auto">
+            <p className="text-xs font-semibold text-stone-600 mb-1">Status</p>
+            <select className={selCls + " w-full sm:w-auto"} value={filters.status} onChange={e => setFilters(f => ({...f, status: e.target.value}))}>
+              <option value="">All Statuses</option>
+              {STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </div>
+          <div className="w-full sm:w-auto">
+            <p className="text-xs font-semibold text-stone-600 mb-1">Category</p>
+            <select className={selCls + " w-full sm:w-auto"} value={filters.category} onChange={e => setFilters(f => ({...f, category: e.target.value}))}>
+              <option value="">All Categories</option>
+              {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
+          <div className="w-full sm:w-auto">
+            <p className="text-xs font-semibold text-stone-600 mb-1">Priority</p>
+            <select className={selCls + " w-full sm:w-auto"} value={filters.priority} onChange={e => setFilters(f => ({...f, priority: e.target.value}))}>
+              <option value="">All Priorities</option>
+              {PRIORITIES.map(p => <option key={p} value={p}>{p}</option>)}
+            </select>
+          </div>
+          <div className="w-full sm:w-auto">
+            <p className="text-xs font-semibold text-stone-600 mb-1">Sub-County</p>
+            <select className={selCls + " w-full sm:w-auto"} value={filters.sub_county} onChange={e => setFilters(f => ({...f, sub_county: e.target.value}))}>
+              <option value="">All Sub-Counties</option>
+              {SUB_COUNTIES.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </div>
+          <div className="flex-1 min-w-44 w-full">
+            <p className="text-xs font-semibold text-stone-600 mb-1">Live Search</p>
+            <input className={inpCls} placeholder="Search ticket ID, location, description…"
+              value={filters.search} onChange={e => setFilters(f => ({...f, search: e.target.value}))} />
+          </div>
+          <button onClick={resetFilters}
+            className="border border-stone-300 text-stone-700 text-xs px-4 py-2.5 rounded-xl hover:bg-stone-50 transition font-semibold flex items-center gap-1.5 min-h-[44px]">
+            <IconRotateCw className="w-3.5 h-3.5" />
+            Reset
+          </button>
+          <button onClick={() => { window.location.href = '/api/requests/export'; }}
+            className="bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold px-4 py-2.5 rounded-xl transition flex items-center gap-1.5 shadow-sm min-h-[44px]">
+            <IconDownload className="w-3.5 h-3.5" />
+            Download CSV Report
+          </button>
+          {resolvedCount > 0 && (
+            <button
+              type="button"
+              onClick={handleClearAllResolved}
+              disabled={clearing}
+              title="Clear all addressed/resolved requests from master queue"
+              className="bg-rose-900/80 hover:bg-rose-800 text-rose-100 border border-rose-600/50 text-xs font-semibold px-4 py-2.5 rounded-xl transition flex items-center gap-1.5 shadow-sm disabled:opacity-50 min-h-[44px]"
+            >
+              <IconTrash className="w-3.5 h-3.5 text-rose-300" />
+              <span>Clear Resolved Issues ({resolvedCount})</span>
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* ── Requests Table ───────────────────────────────────────────────── */}
+      {loading ? <Spinner /> : requests.length === 0 ? (
+        <div className="text-center py-14 text-stone-400 bg-white rounded-2xl border border-stone-200 card-shadow">
+          <IconLayers className="w-12 h-12 mx-auto mb-3 text-stone-300" />
+          <p className="font-display font-bold text-stone-600">No requests match the current filters</p>
+          <button onClick={resetFilters} className="mt-3 text-emerald-800 text-sm underline hover:no-underline font-medium">Clear all filters</button>
+        </div>
+      ) : (
+        <div className="bg-white rounded-none sm:rounded-2xl border-y sm:border border-stone-200 overflow-hidden card-shadow -mx-4 sm:mx-0">
+          <div className="overflow-x-auto">
+            <table className="min-w-full">
+              <thead className="bg-emerald-900 text-white text-xs uppercase tracking-wider font-display">
+                <tr>
+                  <th className="px-4 py-3.5 text-left whitespace-nowrap">Ticket</th>
+                  <th className="px-4 py-3.5 text-left whitespace-nowrap">Citizen</th>
+                  <th className="px-4 py-3.5 text-left whitespace-nowrap">Category & Agency</th>
+                  <th className="px-4 py-3.5 text-left whitespace-nowrap">Location</th>
+                  <th className="px-4 py-3.5 text-left whitespace-nowrap">Photo</th>
+                  <th className="px-4 py-3.5 text-left whitespace-nowrap">Status</th>
+                  <th className="px-4 py-3.5 text-left whitespace-nowrap">Rating</th>
+                  <th className="px-4 py-3.5 text-left whitespace-nowrap">Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-stone-100 text-sm font-sans">
+                {requests.map(r => (
+                  <tr key={r.id} className="hover:bg-stone-50 transition-colors">
+                    {/* Ticket ID */}
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-1.5">
+                        <p className="font-mono font-semibold tabular-nums text-emerald-950 text-xs">{r.ticket_id}</p>
+                        <CopyTicketButton ticketId={r.ticket_id} iconOnly={true} />
+                      </div>
+                      <p className="text-xs text-stone-400 font-mono tabular-nums">{fmtDate(r.created_at).split(',')[0]}</p>
+                      <div className="mt-1"><PriorityBadge priority={r.priority} /></div>
+                    </td>
+                    {/* Citizen details */}
+                    <td className="px-4 py-3">
+                      <p className="font-semibold text-stone-900 text-xs">{r.citizen_name || '—'}</p>
+                      <p className="text-xs text-stone-500 font-mono tabular-nums">{r.citizen_phone || ''}</p>
+                      <p className="text-xs text-stone-400 max-w-36 truncate">{r.citizen_email || ''}</p>
+                    </td>
+                    {/* Category & agency */}
+                    <td className="px-4 py-3">
+                      <p className="text-xs font-semibold text-stone-800 mb-1 flex items-center gap-1">
+                        <CategoryIcon category={r.category} className="w-3.5 h-3.5 text-emerald-700" />
+                        {r.category}
+                      </p>
+                      <span className="text-xs bg-emerald-900 text-white px-2 py-0.5 rounded-full font-medium">{r.assigned_unit}</span>
+                    </td>
+                    {/* Location */}
+                    <td className="px-4 py-3 text-xs text-stone-700 max-w-40">
+                      <p className="line-clamp-2">{r.location}</p>
+                    </td>
+                    {/* Photo thumbnail */}
+                    <td className="px-4 py-3">
+                      {r.image_url
+                        ? <img src={r.image_url} alt="Evidence" onClick={() => setLightbox(r.image_url)}
+                            className="w-12 h-12 object-cover rounded-lg border-2 border-stone-200 cursor-pointer hover:border-emerald-600 transition" />
+                        : <span className="text-stone-300 text-xs font-mono">—</span>
+                      }
+                    </td>
+                    {/* Status */}
+                    <td className="px-4 py-3"><StatusBadge status={r.status} /></td>
+                    {/* Citizen rating */}
+                    <td className="px-4 py-3 text-xs">
+                      {r.citizen_rating
+                        ? <span className="text-amber-500 font-sans">{'★'.repeat(r.citizen_rating)}{'☆'.repeat(5-r.citizen_rating)}
+                            <span className="text-stone-500 ml-1 font-mono tabular-nums">{r.citizen_rating}/5</span>
+                          </span>
+                        : <span className="text-stone-300 font-mono">—</span>
+                      }
+                    </td>
+                    {/* Action */}
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-2">
+                        <button onClick={() => setModal(r)}
+                          className="bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold
+                            px-3 py-2 rounded-xl transition whitespace-nowrap shadow-sm">
+                          Update Status
+                        </button>
+                        {r.status === 'Resolved' && (
+                          <button
+                            type="button"
+                            onClick={() => handleClearSingle(r)}
+                            title="Clear / Dismiss resolved ticket"
+                            className="p-2 text-stone-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition border border-transparent hover:border-rose-200"
+                            aria-label="Clear resolved ticket"
+                          >
+                            <IconTrash className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="px-5 py-2.5 bg-stone-50 border-t border-stone-100 text-xs text-stone-600 flex items-center justify-between font-mono tabular-nums">
+            <span>Showing {requests.length} request{requests.length!==1?'s':''}</span>
+            <span className="text-stone-400">All times in UTC</span>
+          </div>
+        </div>
+      )}
+
+      {modal && (
+        <StatusModal req={modal} onClose={() => setModal(null)}
+          onUpdated={() => { fetchRequests(); onAnalyticsRefresh && onAnalyticsRefresh(); }}
+          onEmailToast={onEmailToast} />
+      )}
+      {lightbox && <Lightbox src={lightbox} onClose={() => setLightbox(null)} />}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════ */
+/*  ADMIN TAB 2 — Citizen Directory                                              */
+/* ═══════════════════════════════════════════════════════════════════════════ */
+function CitizenDirectoryTab({ currentUser }) {
+  const [users,    setUsers]    = useState([]);
+  const [loading,  setLoading]  = useState(true);
+  const [toggling, setToggling] = useState(null);
+  const [feedback, setFeedback] = useState('');
+
+  const fetchUsers = useCallback(async () => {
+    setLoading(true);
+    const { ok, data } = await api('/api/admin/users');
+    if (ok) setUsers(data.users);
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { fetchUsers(); }, [fetchUsers]);
+
+  async function toggleStatus(userId) {
+    setToggling(userId);
+    const { ok, data } = await api(`/api/admin/users/${userId}/toggle-status`, { method: 'PATCH' });
+    setToggling(null);
+    if (ok) { setFeedback(data.message); fetchUsers(); }
+    else setFeedback(data.error || 'Toggle failed.');
+    setTimeout(() => setFeedback(''), 4000);
+  }
+
+  return (
+    <div className="space-y-3 font-sans">
+      {feedback && <Alert type="info" msg={feedback} onClose={() => setFeedback('')} />}
+      {loading ? <Spinner /> : (
+        <div className="bg-white rounded-none sm:rounded-2xl border-y sm:border border-stone-200 overflow-hidden card-shadow -mx-4 sm:mx-0">
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead className="bg-emerald-900 text-white text-xs uppercase tracking-wider font-display">
+                <tr>
+                  <th className="px-4 py-3.5 text-left">Name & Contact</th>
+                  <th className="px-4 py-3.5 text-left">Sub-County</th>
+                  <th className="px-4 py-3.5 text-left">Role</th>
+                  <th className="px-4 py-3.5 text-center">Requests</th>
+                  <th className="px-4 py-3.5 text-left">Joined</th>
+                  <th className="px-4 py-3.5 text-left">Account Status</th>
+                  <th className="px-4 py-3.5 text-left">Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-stone-100">
+                {users.map(u => (
+                  <tr key={u.id} className={`hover:bg-stone-50 transition-colors ${!u.is_active ? 'opacity-60' : ''}`}>
+                    <td className="px-4 py-3">
+                      <p className="font-semibold text-stone-900">{u.full_name}</p>
+                      <p className="text-xs text-stone-500 font-mono">{u.email}</p>
+                      <p className="text-xs text-stone-400 font-mono tabular-nums">{u.phone}</p>
+                    </td>
+                    <td className="px-4 py-3 text-xs text-stone-700">{u.sub_county}</td>
+                    <td className="px-4 py-3">
+                      <span className={`text-xs font-semibold px-2.5 py-1 rounded-full inline-flex items-center gap-1.5
+                        ${u.role==='admin' ? 'bg-emerald-900 text-white' : 'bg-stone-100 text-stone-700'}`}>
+                        {u.role === 'admin' ? <IconShield className="w-3.5 h-3.5 text-amber-400" /> : <IconUsers className="w-3.5 h-3.5 text-stone-500" />}
+                        {u.role === 'admin' ? 'Admin' : 'Citizen'}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      <span className="text-2xl font-mono font-bold tabular-nums text-emerald-950">{u.request_count}</span>
+                    </td>
+                    <td className="px-4 py-3 text-xs text-stone-500 font-mono tabular-nums">
+                      {fmtDate(u.created_at).split(',')[0]}
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className={`text-xs font-semibold px-2.5 py-1 rounded-full inline-flex items-center gap-1.5
+                        ${u.is_active ? 'bg-green-100 text-green-900' : 'bg-red-100 text-red-800'}`}>
+                        {u.is_active ? <IconCheckCircle className="w-3.5 h-3.5 text-green-700" /> : <IconAlertCircle className="w-3.5 h-3.5 text-red-600" />}
+                        {u.is_active ? 'Active' : 'Suspended'}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      {u.id !== currentUser.id ? (
+                        <button
+                          onClick={() => toggleStatus(u.id)}
+                          disabled={toggling === u.id}
+                          className={`text-xs font-semibold px-3 py-2 rounded-xl border transition disabled:opacity-50
+                            ${u.is_active
+                              ? 'text-red-700 border-red-200 bg-red-50 hover:bg-red-100'
+                              : 'text-green-800 border-green-200 bg-green-50 hover:bg-green-100'}`}>
+                          {toggling === u.id ? '…' : u.is_active ? 'Suspend' : 'Activate'}
+                        </button>
+                      ) : (
+                        <span className="text-xs text-stone-400 italic font-mono">Your account</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="px-5 py-2.5 bg-stone-50 border-t border-stone-100 text-xs text-stone-600 font-mono tabular-nums">
+            {users.length} registered user{users.length!==1?'s':''} total
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════ */
+/*  ADMIN TAB 3 — Security Audit Trail                                           */
+/* ═══════════════════════════════════════════════════════════════════════════ */
+function AuditTrailTab({ logs }) {
+  if (!logs || logs.length === 0) return (
+    <div className="text-center py-14 bg-white rounded-2xl border border-stone-200 card-shadow font-sans">
+      <IconShield className="w-12 h-12 mx-auto mb-3 text-stone-300" />
+      <p className="text-stone-500 font-semibold font-display">No audit log entries yet.</p>
+    </div>
+  );
+
+  return (
+    <div className="bg-white rounded-none sm:rounded-2xl border-y sm:border border-stone-200 overflow-hidden card-shadow font-sans -mx-4 sm:mx-0">
+      <div className="overflow-x-auto">
+        <table className="min-w-full">
+          <thead className="bg-emerald-900 text-white text-xs uppercase tracking-wider font-display">
+            <tr>
+              <th className="px-4 py-3.5 text-left whitespace-nowrap">Timestamp (UTC)</th>
+              <th className="px-4 py-3.5 text-left whitespace-nowrap">Actor</th>
+              <th className="px-4 py-3.5 text-left whitespace-nowrap">Email</th>
+              <th className="px-4 py-3.5 text-left whitespace-nowrap">Role</th>
+              <th className="px-4 py-3.5 text-left whitespace-nowrap">Ticket ID</th>
+              <th className="px-4 py-3.5 text-left">Action Summary</th>
+              <th className="px-4 py-3.5 text-left whitespace-nowrap">IP Address</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-stone-100 text-xs">
+            {logs.map(log => (
+              <tr key={log.id} className="hover:bg-stone-50 transition-colors">
+                <td className="px-4 py-2.5 text-stone-500 font-mono tabular-nums whitespace-nowrap">
+                  {fmtDate(log.timestamp)}
+                </td>
+                <td className="px-4 py-2.5 font-semibold text-stone-900 font-sans whitespace-nowrap">
+                  {log.actor_name}
+                </td>
+                <td className="px-4 py-2.5 font-mono text-xs text-stone-600 whitespace-nowrap">
+                  {log.actor_email || '—'}
+                </td>
+                <td className="px-4 py-2.5">
+                  <span className={`px-2 py-0.5 rounded text-xs font-semibold
+                    ${log.actor_role==='admin' ? 'bg-emerald-900 text-white' : 'bg-stone-100 text-stone-700'}`}>
+                    {log.actor_role}
+                  </span>
+                </td>
+                <td className="px-4 py-2.5 font-mono font-medium tabular-nums text-emerald-950">{log.ticket_id}</td>
+                <td className="px-4 py-2.5 text-stone-700 font-sans max-w-sm">
+                  <p className="leading-relaxed">{log.action}</p>
+                </td>
+                <td className="px-4 py-2.5 text-stone-500 font-mono tabular-nums">{log.ip_address}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="px-5 py-2.5 bg-stone-50 border-t border-stone-100 text-xs text-stone-600 flex items-center gap-2 font-mono tabular-nums">
+        <IconShield className="w-3.5 h-3.5 text-emerald-700" />
+        <span>Showing latest {logs.length} entries — immutable, append-only audit record</span>
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════ */
+/*  ADMIN COMMAND DASHBOARD                                                      */
+/* ═══════════════════════════════════════════════════════════════════════════ */
+function AdminDashboard({ user, onEmailToast }) {
+  const [activeTab,  setActiveTab]  = useState('requests');
+  const [analytics,  setAnalytics]  = useState(null);
+  const [aLoading,   setALoading]   = useState(true);
+
+  const fetchAnalytics = useCallback(async () => {
+    setALoading(true);
+    const { ok, data } = await api('/api/analytics');
+    if (ok) setAnalytics(data);
+    setALoading(false);
+  }, []);
+
+  useEffect(() => { fetchAnalytics(); }, [fetchAnalytics]);
+
+  const tabs = [
+    { id: 'requests', label: 'Manage Requests', icon: <IconLayers className="w-4 h-4" /> },
+    { id: 'citizens', label: 'Citizen Directory', icon: <IconUsers className="w-4 h-4" /> },
+    { id: 'audit',    label: 'Audit Trail', icon: <IconShield className="w-4 h-4" /> },
+  ];
+
+  return (
+    <div className="space-y-6 font-sans">
+      {/* ── Analytics Strip ───────────────────────────────────────────────── */}
+      <div>
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h2 className="text-xl font-display font-bold text-emerald-950 flex items-center gap-2">
+              <IconBarChart className="w-5 h-5 text-emerald-800" />
+              County Analytics Dashboard
+            </h2>
+            <p className="text-xs text-stone-600 mt-0.5">Live data from Murang'a County service request system</p>
+          </div>
+          <button onClick={fetchAnalytics}
+            className="text-xs text-emerald-800 hover:text-emerald-950 border border-emerald-300 px-4 py-2 rounded-xl hover:bg-emerald-50 transition font-semibold flex items-center gap-1.5 shadow-sm">
+            <IconRotateCw className="w-3.5 h-3.5" />
+            Refresh
+          </button>
+        </div>
+        {aLoading ? <Spinner /> : <AnalyticsStrip analytics={analytics} />}
+      </div>
+
+      {/* ── Tab Navigation with Lucide icons ──────────────────────────────── */}
+      <div className="border-b-2 border-stone-200">
+        <div className="flex overflow-x-auto no-scrollbar gap-1 sm:gap-2 -mb-px pb-1 sm:pb-0">
+          {tabs.map(t => (
+            <button key={t.id} onClick={() => setActiveTab(t.id)}
+              className={`px-3.5 sm:px-5 py-2.5 sm:py-3 text-xs sm:text-sm font-display font-bold border-b-2 transition-all flex items-center gap-2 whitespace-nowrap min-h-[44px]
+                ${activeTab===t.id
+                  ? 'border-emerald-800 text-emerald-900 bg-white rounded-t-xl'
+                  : 'border-transparent text-stone-600 hover:text-stone-900 hover:border-stone-300'}`}>
+              {t.icon}
+              {t.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* ── Tab Content ───────────────────────────────────────────────────── */}
+      <div className="fade-in" key={activeTab}>
+        {activeTab === 'requests' && <AdminRequestsTab onAnalyticsRefresh={fetchAnalytics} onEmailToast={onEmailToast} />}
+        {activeTab === 'citizens' && <CitizenDirectoryTab currentUser={user} />}
+        {activeTab === 'audit'    && <AuditTrailTab logs={analytics?.audit_logs || []} />}
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════ */
+/*  PUBLIC TICKET STATUS MODAL (Connected 311 Quick-Track Modal)                */
+/* ═══════════════════════════════════════════════════════════════════════════ */
+function PublicTrackModal({ ticket, error, onClose }) {
+  if (!ticket && !error) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-950/70 backdrop-blur-sm fade-in font-sans" onClick={onClose}>
+      <div
+        className="bg-white rounded-3xl border border-stone-200 shadow-2xl max-w-xl w-full p-6 sm:p-7 relative overflow-hidden text-stone-900"
+        onClick={e => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+      >
+        {/* Decorative Top Accent Bar */}
+        <div className="absolute top-0 left-0 right-0 h-2 bg-gradient-to-r from-emerald-900 via-amber-500 to-emerald-800" />
+
+        {/* Close Button */}
+        <button
+          onClick={onClose}
+          className="absolute top-5 right-5 text-stone-400 hover:text-stone-700 bg-stone-100 hover:bg-stone-200 rounded-full p-1.5 transition"
+          aria-label="Close track dialog"
+        >
+          <IconX className="w-5 h-5" />
+        </button>
+
+        {error ? (
+          <div className="pt-2 text-center">
+            <div className="w-14 h-14 bg-red-100 text-red-700 rounded-full flex items-center justify-center mx-auto mb-3">
+              <IconAlertCircle className="w-8 h-8" />
+            </div>
+            <h3 className="font-display font-bold text-xl text-stone-900 mb-1">Ticket Not Found</h3>
+            <p className="text-stone-600 text-sm mb-6 max-w-sm mx-auto">{error}</p>
+            <button
+              onClick={onClose}
+              className="bg-stone-900 hover:bg-stone-800 text-white text-xs font-semibold px-6 py-2.5 rounded-xl transition"
+            >
+              Close & Search Again
+            </button>
+          </div>
+        ) : (
+          <div>
+            {/* Header / Badges */}
+            <div className="flex flex-wrap items-start justify-between gap-3 mb-4 pr-8">
+              <div>
+                <span className="text-[10px] font-mono uppercase tracking-widest font-bold text-emerald-800 bg-emerald-50 border border-emerald-200/80 px-2 py-0.5 rounded-md">
+                  County 021 Public Record
+                </span>
+                <div className="flex items-center gap-2.5 mt-1">
+                  <h3 className="font-mono font-bold text-2xl text-emerald-950 tracking-tight tabular-nums">
+                    {ticket.ticket_id}
+                  </h3>
+                  <CopyTicketButton ticketId={ticket.ticket_id} />
+                </div>
+                <div className="flex items-center gap-2 text-xs text-stone-600 mt-0.5">
+                  <CategoryIcon category={ticket.category} className="w-3.5 h-3.5 text-emerald-700" />
+                  <span className="font-semibold text-stone-800">{ticket.category}</span>
+                  <span>·</span>
+                  <span className="font-medium">{ticket.sub_county} Sub-County</span>
+                </div>
+              </div>
+              <div className="flex flex-col items-end gap-1.5">
+                <StatusBadge status={ticket.status} />
+                <PriorityBadge priority={ticket.priority} />
+              </div>
+            </div>
+
+            {/* 3-Step Visual Progress Stepper */}
+            <div className="bg-stone-50 border border-stone-200/80 rounded-2xl px-4 py-2 mb-4">
+              <ProgressStepper status={ticket.status} />
+            </div>
+
+            {/* Structured Details Grid */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4 text-xs">
+              <div className="bg-stone-50 rounded-xl p-3 border border-stone-100">
+                <p className="text-stone-500 font-medium mb-0.5">Ward / Landmark Location</p>
+                <p className="font-semibold text-stone-900 text-sm leading-snug">{ticket.location}</p>
+              </div>
+              <div className="bg-emerald-50/70 rounded-xl p-3 border border-emerald-100">
+                <p className="text-emerald-800 font-medium mb-0.5">Assigned County Unit</p>
+                <p className="font-display font-bold text-emerald-950 text-xs">{ticket.assigned_unit}</p>
+              </div>
+            </div>
+
+            {/* Official County Remarks (Protected: No citizen PII) */}
+            {ticket.admin_remarks ? (
+              <div className="bg-amber-50/80 border border-amber-200 rounded-xl p-3.5 mb-4">
+                <p className="text-xs font-bold text-amber-950 mb-1 flex items-center gap-1.5 font-display">
+                  <IconInfo className="w-3.5 h-3.5 text-amber-700" />
+                  Official County Officer Remarks
+                </p>
+                <p className="text-xs text-amber-950 leading-relaxed font-sans">{ticket.admin_remarks}</p>
+                <p className="text-[10px] text-amber-800 mt-1.5 font-mono tabular-nums">
+                  Updated: {fmtDate(ticket.updated_at)}
+                </p>
+              </div>
+            ) : (
+              <div className="bg-stone-50 border border-stone-100 rounded-xl p-3 text-center mb-4">
+                <p className="text-xs text-stone-500 italic font-sans">
+                  No public officer remarks logged yet. The assigned unit has received this dispatch.
+                </p>
+              </div>
+            )}
+
+            {/* Footer Metadata & Privacy Notice */}
+            <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-stone-100 text-[11px] text-stone-400 font-mono tabular-nums">
+              <span>Submitted: {fmtDate(ticket.created_at)}</span>
+              <span className="text-emerald-700 font-sans font-medium">Privacy Protected (DPA 2019)</span>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════ */
+/*  MY HUDUMA PROFILE & SECURITY SETTINGS MODAL                                 */
+/* ═══════════════════════════════════════════════════════════════════════════ */
+function ProfileModal({ user, onClose, onUserUpdated, civicStats }) {
+  const [activeTab,       setActiveTab]       = useState('details'); // 'details' | 'security'
+  const [profileForm,     setProfileForm]     = useState({
+    full_name: user?.full_name || '',
+    phone: user?.phone || '',
+    sub_county: user?.sub_county || 'Kiharu',
+  });
+  const [profileLoading,  setProfileLoading]  = useState(false);
+  const [profileSuccess,  setProfileSuccess]  = useState('');
+  const [profileError,    setProfileError]    = useState('');
+
+  const [passwordForm,    setPasswordForm]    = useState({
+    current_password: '',
+    new_password: '',
+    confirm_password: '',
+  });
+  const [passwordLoading, setPasswordLoading] = useState(false);
+  const [passwordSuccess, setPasswordSuccess] = useState('');
+  const [passwordError,   setPasswordError]   = useState('');
+
+  // Update profile handler
+  async function handleUpdateProfile(e) {
+    e.preventDefault();
+    setProfileError('');
+    setProfileSuccess('');
+    setProfileLoading(true);
+
+    const { ok, data } = await api('/api/auth/profile', {
+      method: 'PATCH',
+      body: JSON.stringify(profileForm),
+    });
+    setProfileLoading(false);
+
+    if (ok) {
+      setProfileSuccess(data.message || 'Profile updated successfully.');
+      onUserUpdated && onUserUpdated(data.user);
+      setTimeout(() => setProfileSuccess(''), 4000);
+    } else {
+      const err = data.details ? data.details.join(' ') : data.error;
+      setProfileError(err || 'Failed to update profile.');
+    }
+  }
+
+  // Change password handler
+  async function handleChangePassword(e) {
+    e.preventDefault();
+    setPasswordError('');
+    setPasswordSuccess('');
+
+    if (passwordForm.new_password.length < 6) {
+      setPasswordError('New password must be at least 6 characters.');
+      return;
+    }
+    if (passwordForm.new_password !== passwordForm.confirm_password) {
+      setPasswordError('New password and confirm password do not match.');
+      return;
+    }
+
+    setPasswordLoading(true);
+    const { ok, data } = await api('/api/auth/password', {
+      method: 'PATCH',
+      body: JSON.stringify({
+        current_password: passwordForm.current_password,
+        new_password: passwordForm.new_password,
+      }),
+    });
+    setPasswordLoading(false);
+
+    if (ok) {
+      setPasswordSuccess(data.message || 'Password changed successfully.');
+      setPasswordForm({ current_password: '', new_password: '', confirm_password: '' });
+      setTimeout(() => setPasswordSuccess(''), 4000);
+    } else {
+      setPasswordError(data.error || 'Failed to change password.');
+    }
+  }
+
+  const cleanName = user ? (user.full_name || "").replace(/\s*\(.*?\)\s*/g, "").trim() : "";
+  const initials = cleanName
+    ? cleanName.split(' ').filter(Boolean).map(n => n[0]).slice(0, 2).join('').toUpperCase()
+    : 'U';
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-stone-950/70 backdrop-blur-sm fade-in font-sans overflow-y-auto"
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+    >
+      <div
+        className="bg-white rounded-2xl sm:rounded-3xl border border-stone-200 shadow-2xl max-w-xl w-full my-auto max-h-[calc(100dvh-1.5rem)] sm:max-h-[90vh] flex flex-col overflow-hidden text-stone-900"
+        onClick={e => e.stopPropagation()}
+      >
+        {/* ── Top Digital County ID Card ────────────────────────────────────── */}
+        <div className="bg-emerald-900 text-white p-4 sm:p-6 border-b-4 border-amber-500 relative shrink-0">
+          <button
+            onClick={onClose}
+            className="absolute top-3.5 right-3.5 sm:top-5 sm:right-5 text-emerald-200 hover:text-white bg-white/10 hover:bg-white/20 rounded-full p-1.5 transition min-h-[36px] min-w-[36px] flex items-center justify-center"
+            aria-label="Close profile modal"
+          >
+            <IconX className="w-5 h-5" />
+          </button>
+
+          <div className="flex items-center gap-3 sm:gap-4 pr-10">
+            {/* Gold-ringed Initials Medallion */}
+            <div className="h-12 w-12 sm:h-16 sm:w-16 rounded-xl sm:rounded-2xl bg-emerald-950 text-amber-400 font-display font-bold text-base sm:text-xl flex items-center justify-center ring-2 sm:ring-4 ring-amber-500 shadow-lg flex-shrink-0">
+              {initials}
+            </div>
+
+            <div className="flex-1 min-w-0">
+              <h3 className="font-display font-bold text-base sm:text-xl text-white truncate">
+                {cleanName || user.full_name}
+              </h3>
+              <p className="text-xs text-emerald-200 mt-0.5 truncate font-mono">
+                {user.email}
+              </p>
+              <p className="text-[11px] sm:text-xs text-emerald-300/90 mt-0.5 flex items-center gap-1 flex-wrap">
+                <span>Murang'a County</span>
+                <span>•</span>
+                <span className="font-semibold text-amber-300">{user.sub_county} Sub-County</span>
+              </p>
+            </div>
+          </div>
+
+          {/* Personal Civic Activity Strip */}
+          <div className="grid grid-cols-3 gap-1.5 sm:gap-2 mt-3.5 sm:mt-5 pt-3 sm:pt-4 border-t border-emerald-800/80 text-center font-mono">
+            <div className="bg-emerald-950/60 rounded-xl p-2 sm:p-2.5 border border-emerald-800">
+              <p className="text-base sm:text-lg font-bold tabular-nums text-white">{civicStats?.total || 0}</p>
+              <p className="text-[9px] sm:text-[10px] font-sans text-emerald-300 uppercase tracking-wide mt-0.5">Submitted</p>
+            </div>
+            <div className="bg-emerald-950/60 rounded-xl p-2 sm:p-2.5 border border-emerald-800">
+              <p className="text-base sm:text-lg font-bold tabular-nums text-amber-400">{civicStats?.open || 0}</p>
+              <p className="text-[9px] sm:text-[10px] font-sans text-emerald-300 uppercase tracking-wide mt-0.5">In Progress</p>
+            </div>
+            <div className="bg-emerald-950/60 rounded-xl p-2 sm:p-2.5 border border-emerald-800">
+              <p className="text-base sm:text-lg font-bold tabular-nums text-emerald-300">{civicStats?.resolved || 0}</p>
+              <p className="text-[9px] sm:text-[10px] font-sans text-emerald-300 uppercase tracking-wide mt-0.5">Resolved</p>
+            </div>
+          </div>
+        </div>
+
+        {/* ── Tab Switcher ─────────────────────────────────────────────────── */}
+        <div className="grid grid-cols-2 border-b border-stone-200 bg-stone-50 px-2 sm:px-6 shrink-0">
+          <button
+            onClick={() => setActiveTab('details')}
+            className={`py-2.5 sm:py-3 px-2 sm:px-4 text-xs font-display font-bold border-b-2 transition flex items-center justify-center gap-1.5 sm:gap-2 min-h-[44px] ${
+              activeTab === 'details'
+                ? 'border-emerald-800 text-emerald-900 bg-white'
+                : 'border-transparent text-stone-500 hover:text-stone-800'
+            }`}
+          >
+            <IconUser className="w-4 h-4 text-emerald-700 shrink-0" />
+            <span className="sm:hidden">Details</span>
+            <span className="hidden sm:inline">Personal Details & Sub-County</span>
+          </button>
+          <button
+            onClick={() => setActiveTab('security')}
+            className={`py-2.5 sm:py-3 px-2 sm:px-4 text-xs font-display font-bold border-b-2 transition flex items-center justify-center gap-1.5 sm:gap-2 min-h-[44px] ${
+              activeTab === 'security'
+                ? 'border-emerald-800 text-emerald-900 bg-white'
+                : 'border-transparent text-stone-500 hover:text-stone-800'
+            }`}
+          >
+            <IconKey className="w-4 h-4 text-emerald-700 shrink-0" />
+            <span className="sm:hidden">Security</span>
+            <span className="hidden sm:inline">Security & Password</span>
+          </button>
+        </div>
+
+        {/* ── Tab Content (Scrollable Modal Body) ──────────────────────────── */}
+        <div className="p-4 sm:p-6 overflow-y-auto flex-1 overscroll-contain">
+          {activeTab === 'details' ? (
+            <form onSubmit={handleUpdateProfile} className="space-y-4">
+              <Alert type="success" msg={profileSuccess} onClose={() => setProfileSuccess('')} />
+              <Alert type="error"   msg={profileError}   onClose={() => setProfileError('')} />
+
+              <div>
+                <label className="block text-xs font-semibold text-stone-700 mb-1">
+                  Full Name <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={profileForm.full_name}
+                  onChange={e => setProfileForm(f => ({ ...f, full_name: e.target.value }))}
+                  className="w-full border border-stone-300 rounded-xl px-3 py-2 text-base sm:text-sm min-h-[44px] focus:ring-2 focus:ring-emerald-700 outline-none"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-stone-700 mb-1">
+                    Phone Number <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="tel"
+                    required
+                    value={profileForm.phone}
+                    onChange={e => setProfileForm(f => ({ ...f, phone: e.target.value }))}
+                    className="w-full border border-stone-300 rounded-xl px-3 py-2 text-base sm:text-sm font-mono min-h-[44px] focus:ring-2 focus:ring-emerald-700 outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-stone-700 mb-1">
+                    Default Sub-County <span className="text-red-500">*</span>
+                  </label>
+                  <select
+                    value={profileForm.sub_county}
+                    onChange={e => setProfileForm(f => ({ ...f, sub_county: e.target.value }))}
+                    className="w-full border border-stone-300 rounded-xl px-3 py-2 text-base sm:text-sm min-h-[44px] focus:ring-2 focus:ring-emerald-700 outline-none bg-white"
+                  >
+                    {SUB_COUNTIES.map(s => (
+                      <option key={s} value={s}>{s}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-stone-700 mb-1">
+                  Email Address (Notification Channel)
+                </label>
+                <div className="flex items-center gap-2 bg-stone-100 border border-stone-200 rounded-xl px-3 py-2 text-stone-500 text-sm font-mono min-h-[44px]">
+                  <IconLock className="w-4 h-4 text-stone-400 flex-shrink-0" />
+                  <span className="flex-1 truncate">{user.email}</span>
+                  <span className="text-[10px] font-sans font-semibold text-emerald-800 bg-emerald-100 border border-emerald-300 px-2 py-0.5 rounded-full flex-shrink-0">
+                    Verified
+                  </span>
+                </div>
+                <p className="text-[11px] text-stone-400 mt-1">
+                  Live dispatch updates & receipts are sent to this address.
+                </p>
+              </div>
+
+              <div className="pt-2 flex flex-col-reverse sm:flex-row justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="w-full sm:w-auto px-4 py-2.5 text-xs font-semibold text-stone-600 hover:bg-stone-100 rounded-xl transition text-center min-h-[44px] flex items-center justify-center"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={profileLoading}
+                  className="w-full sm:w-auto bg-emerald-800 hover:bg-emerald-900 text-white text-xs font-semibold px-5 py-2.5 rounded-xl transition flex items-center justify-center gap-2 shadow-sm disabled:opacity-50 min-h-[44px]"
+                >
+                  {profileLoading ? (
+                    <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                    <span>Save Profile Changes</span>
+                  )}
+                </button>
+              </div>
+            </form>
+          ) : (
+            <form onSubmit={handleChangePassword} className="space-y-4">
+              <Alert type="success" msg={passwordSuccess} onClose={() => setPasswordSuccess('')} />
+              <Alert type="error"   msg={passwordError}   onClose={() => setPasswordError('')} />
+
+              <div>
+                <label className="block text-xs font-semibold text-stone-700 mb-1">
+                  Current Password <span className="text-red-500">*</span>
+                </label>
+                <PasswordInput
+                  required
+                  placeholder="••••••••"
+                  value={passwordForm.current_password}
+                  onChange={e => setPasswordForm(f => ({ ...f, current_password: e.target.value }))}
+                  className="py-2 focus:ring-emerald-700 focus:border-emerald-700"
+                  autoComplete="current-password"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-stone-700 mb-1">
+                  New Password <span className="text-red-500">*</span>
+                  <span className="font-normal text-stone-400 text-[11px] ml-1">(min. 6 characters)</span>
+                </label>
+                <PasswordInput
+                  required
+                  placeholder="••••••••"
+                  value={passwordForm.new_password}
+                  onChange={e => setPasswordForm(f => ({ ...f, new_password: e.target.value }))}
+                  className="py-2 focus:ring-emerald-700 focus:border-emerald-700"
+                  autoComplete="new-password"
+                />
+                <PasswordRequirements password={passwordForm.new_password} />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-stone-700 mb-1">
+                  Confirm New Password <span className="text-red-500">*</span>
+                </label>
+                <PasswordInput
+                  required
+                  placeholder="••••••••"
+                  value={passwordForm.confirm_password}
+                  onChange={e => setPasswordForm(f => ({ ...f, confirm_password: e.target.value }))}
+                  className="py-2 focus:ring-emerald-700 focus:border-emerald-700"
+                  autoComplete="new-password"
+                />
+              </div>
+
+              <div className="pt-2 flex flex-col-reverse sm:flex-row justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="w-full sm:w-auto px-4 py-2.5 text-xs font-semibold text-stone-600 hover:bg-stone-100 rounded-xl transition text-center min-h-[44px] flex items-center justify-center"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={passwordLoading}
+                  className="w-full sm:w-auto bg-emerald-800 hover:bg-emerald-900 text-white text-xs font-semibold px-5 py-2.5 rounded-xl transition flex items-center justify-center gap-2 shadow-sm disabled:opacity-50 min-h-[44px]"
+                >
+                  {passwordLoading ? (
+                    <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                    <span>Update Password</span>
+                  )}
+                </button>
+              </div>
+            </form>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════ */
+/*  DUAL-TIER eCITIZEN & MURANG'A COUNTY (021) HEADER                           */
+/* ═══════════════════════════════════════════════════════════════════════════ */
+function Header({ user, onLogout, onOpenProfile, onLogoClick, isRefreshing }) {
+  const [logoFailed, setLogoFailed] = useState(false);
+
+  const cleanName = user ? (user.full_name || "").replace(/\s*\(.*?\)\s*/g, "").trim() : "";
+  const initials = cleanName
+    ? cleanName.split(' ').filter(Boolean).map(n => n[0]).slice(0, 2).join('').toUpperCase()
+    : 'U';
+
+  return (
+    <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b-4 border-amber-500 shadow-[0_4px_20px_-4px_rgba(6,78,59,0.08)] px-3 sm:px-4 py-2.5 sm:py-3.5 w-full">
+      <div className="max-w-7xl mx-auto flex items-center justify-between gap-2 sm:gap-4">
+
+        {/* Left Zone — Brand Lockup, Coat of Arms & Official County Motto */}
+        <button
+          type="button"
+          onClick={onLogoClick}
+          title="Dashboard Home & Refresh"
+          className="group flex items-center gap-2 sm:gap-3.5 text-left focus:outline-none rounded-xl p-1 -ml-1 hover:bg-stone-50/80 transition min-w-0"
+        >
+          {logoFailed ? (
+            /* Fallback SVG Shield with Harvest Gold styling */
+            <div className="h-10 w-10 sm:h-14 sm:w-14 rounded-xl bg-emerald-900 border-2 border-amber-500 flex items-center justify-center text-amber-400 shadow-sm flex-shrink-0 group-hover:scale-105 transition-transform duration-200">
+              <IconShield className="w-5 h-5 sm:w-7 sm:h-7" />
+            </div>
+          ) : (
+            <img
+              src="/static/logo.png"
+              alt="Murang'a County Coat of Arms"
+              onError={() => setLogoFailed(true)}
+              className="h-10 w-10 sm:h-14 sm:w-14 object-contain mix-blend-multiply select-none shrink-0 group-hover:scale-105 transition-transform duration-200"
+            />
+          )}
+
+          {/* Vertical divider separating crest from typography */}
+          <div className="border-l-2 border-stone-200 pl-2 sm:pl-3.5 min-w-0">
+            <p className="text-[9px] sm:text-[11px] font-semibold uppercase tracking-[0.08em] sm:tracking-[0.14em] text-emerald-800 leading-tight truncate">
+              MURANG'A COUNTY GOVERNMENT
+            </p>
+            <div className="flex items-center gap-1.5 sm:gap-2 mt-0.5">
+              <h1 className="font-display text-base sm:text-xl font-bold text-stone-900 tracking-tight leading-none group-hover:text-emerald-950 transition-colors truncate">
+                Huduma Murang'a
+              </h1>
+              {isRefreshing && (
+                <IconRotateCw className="w-3.5 h-3.5 text-emerald-700 animate-spin shrink-0" />
+              )}
+            </div>
+            {/* County Motto in warm Harvest Gold/Yellow (hidden on very small screens to prevent wrap/crowding) */}
+            <p className="hidden sm:block text-[11px] font-semibold text-amber-600 tracking-wide mt-0.5 font-sans truncate">
+              <span className="font-display italic">"Kamũingĩ Koyaga Ndĩrĩ"</span> — Unity is Strength
+            </p>
+          </div>
+        </button>
+
+        {/* Right Zone — Contextual User Identity & Session Control */}
+        <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
+          {user ? (
+            <div className="flex items-center gap-1.5 sm:gap-3">
+              {/* Clickable user profile trigger */}
+              <button
+                onClick={onOpenProfile}
+                className="p-1 sm:p-1.5 rounded-xl hover:bg-stone-100 transition group flex items-center gap-2 text-left min-h-[44px]"
+                title="View & Edit My Huduma Profile"
+              >
+                {/* Avatar Initials Circle */}
+                <div className="h-9 w-9 rounded-full bg-emerald-900 text-amber-400 font-display font-bold text-xs flex items-center justify-center ring-2 ring-amber-500/40 select-none shadow-sm group-hover:ring-amber-500 transition shrink-0">
+                  {initials}
+                </div>
+
+                {/* Text stack on the right */}
+                <div className="flex flex-col justify-center min-w-0">
+                  <p className="text-xs font-bold text-stone-900 group-hover:text-emerald-950 leading-tight max-w-[70px] sm:max-w-[130px] md:max-w-none truncate">
+                    {cleanName}
+                  </p>
+                  {user.role === 'admin' && (
+                    <p className="text-[10px] sm:text-[11px] font-semibold text-emerald-800 tracking-wide mt-0.5 leading-tight">
+                      Admin
+                    </p>
+                  )}
+                </div>
+              </button>
+
+              {/* Tactile Sign Out button */}
+              <button
+                onClick={onLogout}
+                className="text-xs font-medium text-stone-600 hover:text-red-700 hover:bg-red-50 border border-stone-200 hover:border-red-200 px-2.5 sm:px-3 py-2 rounded-lg transition flex items-center justify-center gap-1.5 shadow-sm min-h-[44px] min-w-[44px]"
+                title="Sign out of your session"
+              >
+                <IconLogOut className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
+                <span className="hidden sm:inline">Sign Out</span>
+              </button>
+            </div>
+          ) : null /* Logged-out state kept completely clean */}
+        </div>
+
+      </div>
+    </header>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════ */
+/*  ROOT APP COMPONENT                                                           */
+/* ═══════════════════════════════════════════════════════════════════════════ */
+function App() {
+  const [user,           setUser]           = useState(null);
+  const [appLoading,     setAppLoading]     = useState(true);
+  const [isRefreshing,   setIsRefreshing]   = useState(false);
+  const [resetKey,       setResetKey]       = useState(0);
+
+  /* Quick-track state hooks connected to Header and PublicTrackModal */
+  const [trackLoading,   setTrackLoading]   = useState(false);
+  const [trackedTicket,  setTrackedTicket]  = useState(null);
+  const [trackError,     setTrackError]     = useState('');
+
+  /* Profile Modal state & civic stats */
+  const [isProfileOpen,  setIsProfileOpen]  = useState(false);
+  const [civicStats,     setCivicStats]     = useState({ total: 0, open: 0, resolved: 0 });
+
+  /* Live Gmail SMTP Email Confirmation Toast */
+  const [emailToast,     setEmailToast]     = useState(null);
+  const toastTimeoutRef                     = useRef(null);
+
+  function triggerEmailToast(receipt) {
+    if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
+    setEmailToast(receipt);
+    toastTimeoutRef.current = setTimeout(() => {
+      setEmailToast(null);
+    }, 8000);
+  }
+
+  useEffect(() => {
+    return () => {
+      if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
+    };
+  }, []);
+
+  const refreshUserAndStats = useCallback(async () => {
+    const { ok, data } = await api('/api/auth/me');
+    if (ok) {
+      setUser(data.user);
+      // Fetch user requests to compute civic stats
+      const reqRes = await api('/api/requests');
+      if (reqRes.ok && reqRes.data.requests) {
+        const list = reqRes.data.requests;
+        const total = list.length;
+        const resolved = list.filter(r => r.status === 'Resolved').length;
+        const open = total - resolved;
+        setCivicStats({ total, open, resolved });
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshUserAndStats().then(() => setAppLoading(false));
+  }, [refreshUserAndStats]);
+
+  const handleLogoClick = async () => {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    setIsProfileOpen(false);
+    setTrackedTicket(null);
+    setTrackError('');
+    setIsRefreshing(true);
+    try {
+      if (user) {
+        await refreshUserAndStats();
+      }
+      setResetKey(k => k + 1);
+    } catch (err) {
+      console.error('Refresh error:', err);
+    } finally {
+      setTimeout(() => setIsRefreshing(false), 600);
+    }
+  };
+
+  async function handleLogout() {
+    await api('/api/auth/logout', { method: 'POST' });
+    setUser(null);
+    setIsProfileOpen(false);
+  }
+
+  async function handleTrackTicket(ticketId) {
+    const id = ticketId.trim().toUpperCase();
+    if (!id) return;
+    setTrackLoading(true);
+    setTrackError('');
+    setTrackedTicket(null);
+    const { ok, data } = await api(`/api/requests/track/${encodeURIComponent(id)}`);
+    setTrackLoading(false);
+    if (ok) {
+      setTrackedTicket(data.ticket);
+    } else {
+      setTrackError(data.error || 'Ticket not found. Please verify your Ticket ID (e.g. MCG-021-2026-XXXX).');
+    }
+  }
+
+  function handleCloseTrackModal() {
+    setTrackedTicket(null);
+    setTrackError('');
+  }
+
+  function handleUserUpdated(updatedUser) {
+    setUser(updatedUser);
+    triggerEmailToast({
+      recipient_email: updatedUser.email,
+      subject: "Profile Updated",
+      status: "Verified",
+      assigned_unit: `${updatedUser.sub_county} Sub-County Registry`,
+      delivery_mode: "Local Session & Database Synchronized",
+    });
+  }
+
+  /* ── Full-page loading screen ─────────────────────────────────────────── */
+  if (appLoading) return (
+    <div className="min-h-screen bg-stone-50 flex flex-col items-center justify-center gap-4 font-sans text-stone-900">
+      <div className="w-14 h-14 border-4 border-emerald-200 border-t-emerald-800 rounded-full animate-spin" />
+      <div className="text-center">
+        <p className="font-display font-bold text-emerald-950 text-lg">Huduma Murang'a</p>
+        <p className="text-emerald-700 text-sm">Loading e-Services Portal…</p>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="min-h-screen bg-stone-50 flex flex-col font-sans text-stone-900 relative">
+
+      {/* ════════════════════════════════════════════════════════════════════ */}
+      {/* FLOATING LIVE GMAIL EMAIL CONFIRMATION TOAST BANNER                   */}
+      {/* ════════════════════════════════════════════════════════════════════ */}
+      {emailToast && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="fixed top-24 right-4 z-50 max-w-md w-full bg-white border-l-4 border-emerald-700 shadow-2xl rounded-2xl p-4 fade-in font-sans text-stone-900 border border-stone-200"
+        >
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-start gap-3">
+              <div className="w-9 h-9 rounded-full bg-emerald-100 text-emerald-800 flex items-center justify-center flex-shrink-0 mt-0.5">
+                <IconMail className="w-5 h-5 text-emerald-700" />
+              </div>
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <p className="text-xs font-display font-bold text-emerald-950">
+                    Official Email Confirmation Sent
+                  </p>
+                  <span className="w-2 h-2 rounded-full bg-emerald-600 animate-pulse" />
+                </div>
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="text-[11px] font-mono font-medium text-emerald-900 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md tabular-nums">
+                    To: {emailToast.recipient_email}
+                  </span>
+                </div>
+                <p className="text-xs text-stone-600 leading-snug">
+                  Ticket routed to <strong className="text-emerald-900 font-semibold">{emailToast.assigned_unit}</strong> • Status: <span className="font-semibold text-stone-800">{emailToast.status}</span>
+                </p>
+                <p className="text-[10px] text-stone-400 font-mono">
+                  Delivered via: {emailToast.delivery_mode}
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={() => setEmailToast(null)}
+              className="text-stone-400 hover:text-stone-700 bg-stone-100 hover:bg-stone-200 rounded-full p-1 transition flex-shrink-0"
+              aria-label="Dismiss toast"
+            >
+              <IconX className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ════════════════════════════════════════════════════════════════════ */}
+      {/* UPGRADED DUAL-TIER eCITIZEN & MURANG'A COUNTY (021) HEADER           */}
+      {/* ════════════════════════════════════════════════════════════════════ */}
+      <Header
+        user={user}
+        onLogout={handleLogout}
+        onTrackTicket={handleTrackTicket}
+        trackLoading={trackLoading}
+        onOpenProfile={() => setIsProfileOpen(true)}
+        onLogoClick={handleLogoClick}
+        isRefreshing={isRefreshing}
+      />
+
+      {/* ════════════════════════════════════════════════════════════════════ */}
+      {/* MY HUDUMA PROFILE & SECURITY SETTINGS MODAL                           */}
+      {/* ════════════════════════════════════════════════════════════════════ */}
+      {isProfileOpen && user && (
+        <ProfileModal
+          user={user}
+          civicStats={civicStats}
+          onClose={() => setIsProfileOpen(false)}
+          onUserUpdated={handleUserUpdated}
+        />
+      )}
+
+      {/* ════════════════════════════════════════════════════════════════════ */}
+      {/* CONNECTED PUBLIC TICKET RESULT MODAL (311 Quick-Track UX)            */}
+      {/* ════════════════════════════════════════════════════════════════════ */}
+      <PublicTrackModal
+        ticket={trackedTicket}
+        error={trackError}
+        onClose={handleCloseTrackModal}
+      />
+
+      {!user ? (
+        /* ════════════════════════════════════════════════════════════════════ */
+        /* UNIFIED LOGGED-OUT CANVAS (From Navbar to Footer)                     */
+        /* ════════════════════════════════════════════════════════════════════ */
+        <div className="relative overflow-hidden bg-emerald-950 min-h-[calc(100vh-140px)] flex flex-col justify-between py-8 sm:py-16 px-4">
+          {/* ── Continuous Translucent Mosaic Background (Full Height) ────────── */}
+          <div className="absolute inset-0 z-0 grid grid-cols-3 sm:grid-cols-6 lg:grid-cols-8 gap-1.5 p-1.5 opacity-40 select-none pointer-events-none" aria-hidden="true">
+            {HERO_TILES.map((tile, i) => (
+              <div key={i} className="relative h-full w-full overflow-hidden bg-emerald-950 rounded-sm">
+                <img
+                  src={tile.src}
+                  alt=""
+                  loading="eager"
+                  className={`w-full h-full object-cover ${tile.pos} ${tile.flip ? "scale-x-[-1]" : ""} filter brightness-105 contrast-105`}
+                />
+              </div>
+            ))}
+          </div>
+
+          {/* Softer, consistent translucent emerald multiply filter across the entire background */}
+          <div className="absolute inset-0 z-0 bg-emerald-950/70 mix-blend-multiply pointer-events-none select-none" aria-hidden="true" />
+
+          {/* Subtle lateral vignette for cinematic focus & depth */}
+          <div className="absolute inset-0 z-0 bg-gradient-to-r from-emerald-950/60 via-transparent to-emerald-950/60 pointer-events-none select-none" aria-hidden="true" />
+
+          {/* Fine Pixel Matrix Dot Grid */}
+          <div
+            className="absolute inset-0 z-0 opacity-25 pointer-events-none select-none"
+            style={{
+              backgroundImage: 'radial-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px)',
+              backgroundSize: '16px 16px',
+            }}
+            aria-hidden="true"
+          />
+
+          {/* ── Foreground Content Container (relative z-10) ─────────────────── */}
+          <div className="relative z-10 flex-1 flex flex-col justify-start">
+            {/* Top Hero Section Header & Frosted Ticket Tracker */}
+            <div className="max-w-4xl mx-auto w-full text-center mb-8">
+              <h1 className="text-2xl sm:text-4xl lg:text-5xl font-display font-bold tracking-tight mb-3 text-white drop-shadow-md">
+                Report. Track. Resolve.
+              </h1>
+              <p className="text-emerald-50/95 text-sm sm:text-base max-w-xl mx-auto leading-relaxed font-sans drop-shadow-[0_2px_4px_rgba(0,0,0,0.4)] mb-6">
+                Submit public service requests directly to Murang'a County agencies — water supply,
+                streetlights, garbage collection, and road maintenance — then track resolution in real time.
+              </p>
+
+              {/* Public tracker */}
+              <div className="max-w-2xl mx-auto">
+                <TicketTracker />
+              </div>
+
+              <p className="text-center text-emerald-100/90 text-xs mt-3.5 font-sans drop-shadow-[0_1px_2px_rgba(0,0,0,0.6)]">
+                Any visitor can track a ticket above. Sign in below to submit a new service request.
+              </p>
+            </div>
+
+            {/* Compact, Balanced Authentication & Demo Card Layout */}
+            <div className="max-w-4xl mx-auto w-full">
+              <AuthCard key={resetKey} onLogin={setUser} />
+            </div>
+          </div>
+        </div>
+      ) : (
+        /* ════════════════════════════════════════════════════════════════════ */
+        /* LOGGED-IN VIEW: Hero Banner + Clean Workspace in bg-stone-50         */
+        /* ════════════════════════════════════════════════════════════════════ */
+        <>
+          <section className="relative overflow-hidden bg-emerald-950 text-white py-8 sm:py-12 px-4">
+            <div className="absolute inset-0 pointer-events-none select-none overflow-hidden" aria-hidden="true">
+              <div className="grid grid-cols-3 sm:grid-cols-6 lg:grid-cols-8 gap-1 sm:gap-1.5 h-full w-full opacity-70">
+                {HERO_TILES.map((tile, i) => (
+                  <div key={i} className="relative h-full w-full overflow-hidden bg-emerald-950 rounded-sm">
+                    <img
+                      src={tile.src}
+                      alt=""
+                      loading="eager"
+                      className={`w-full h-full object-cover ${tile.pos} ${tile.flip ? "scale-x-[-1]" : ""} filter brightness-110 contrast-105 saturate-110`}
+                    />
+                  </div>
+                ))}
+              </div>
+              <div className="absolute inset-0 bg-emerald-900/40 shadow-inner backdrop-blur-[0.5px] mix-blend-multiply" />
+              <div className="absolute inset-0 bg-gradient-to-r from-emerald-950/70 via-emerald-900/35 to-emerald-950/70" />
+              <div className="absolute inset-0 bg-gradient-to-b from-emerald-950/30 via-emerald-950/60 to-emerald-950/95" />
+              <div
+                className="absolute inset-0 opacity-40"
+                style={{
+                  backgroundImage: 'radial-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px)',
+                  backgroundSize: '16px 16px',
+                }}
+              />
+            </div>
+
+            <div className="relative z-10 max-w-3xl mx-auto text-center mb-6">
+              <h1 className="text-2xl sm:text-3xl lg:text-4xl font-display font-bold tracking-tight mb-2 text-white drop-shadow-md">
+                Report. Track. Resolve.
+              </h1>
+              <p className="text-emerald-50/90 text-xs sm:text-sm max-w-xl mx-auto leading-relaxed font-sans drop-shadow-[0_2px_4px_rgba(0,0,0,0.4)]">
+                Submit public service requests directly to Murang'a County agencies — water supply,
+                streetlights, garbage collection, and road maintenance — then track resolution in real time.
+              </p>
+            </div>
+
+            <div className="relative z-10 drop-shadow-lg max-w-2xl mx-auto">
+              <TicketTracker />
+            </div>
+          </section>
+
+          {user.role === 'admin' ? (
+            /* ── Admin: Clean workspace in bg-stone-50 ───────────────────────── */
+            <main className="flex-1 max-w-7xl mx-auto w-full px-4 py-8">
+              <AdminDashboard key={resetKey} user={user} onEmailToast={triggerEmailToast} />
+            </main>
+          ) : (
+            /* ── Citizen: Continuous Translucent Mosaic Background Canvas ───── */
+            <div className="relative overflow-hidden bg-emerald-950 min-h-[calc(100vh-140px)] flex flex-col justify-between py-8 px-4 sm:px-6">
+              {/* Softer version of HERO_TILES across this background layer */}
+              <div className="absolute inset-0 z-0 grid grid-cols-3 sm:grid-cols-6 lg:grid-cols-8 gap-1.5 p-1.5 opacity-30 select-none pointer-events-none" aria-hidden="true">
+                {HERO_TILES.map((tile, i) => (
+                  <div key={i} className="relative h-full w-full overflow-hidden bg-emerald-950 rounded-sm">
+                    <img
+                      src={tile.src}
+                      alt=""
+                      loading="eager"
+                      className={`w-full h-full object-cover ${tile.pos} ${tile.flip ? "scale-x-[-1]" : ""} filter brightness-105 contrast-105`}
+                    />
+                  </div>
+                ))}
+              </div>
+
+              {/* Softer translucent emerald multiply filter */}
+              <div className="absolute inset-0 z-0 bg-emerald-950/80 mix-blend-multiply pointer-events-none select-none" aria-hidden="true" />
+
+              {/* Subtle lateral vignette */}
+              <div className="absolute inset-0 z-0 bg-gradient-to-r from-emerald-950/60 via-transparent to-emerald-950/60 pointer-events-none select-none" aria-hidden="true" />
+
+              {/* Fine Dot Grid */}
+              <div
+                className="absolute inset-0 z-0 opacity-20 pointer-events-none select-none"
+                style={{
+                  backgroundImage: 'radial-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px)',
+                  backgroundSize: '16px 16px',
+                }}
+                aria-hidden="true"
+              />
+
+              {/* Citizen Dashboard Content (relative z-10) */}
+              <div className="relative z-10 flex-1 max-w-7xl mx-auto w-full">
+                <CitizenPortal key={resetKey} user={user} onEmailToast={triggerEmailToast} />
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* ════════════════════════════════════════════════════════════════════ */}
+      {/* FOOTER                                                                */}
+      {/* ════════════════════════════════════════════════════════════════════ */}
+      <footer className={`bg-emerald-950 text-white font-sans border-t-2 border-amber-500 ${user?.role === 'admin' ? 'mt-8' : 'mt-0'}`}>
+        <div className="max-w-7xl mx-auto px-4 py-8">
+          <div className="flex flex-wrap items-start justify-between gap-6">
+            {/* Brand & Identity */}
+              <div>
+                <div className="flex items-center gap-3 mb-2">
+                  <div className="w-10 h-10 rounded-xl bg-white p-1 flex items-center justify-center shadow-md">
+                    <img src="/static/logo.png" alt="Murang'a County Crest" className="h-8 w-8 object-contain" />
+                  </div>
+                  <div>
+                    <p className="font-display font-bold text-sm">Murang'a County Government</p>
+                    <p className="text-emerald-300 text-xs">Huduma Murang'a e-Services Portal</p>
+                  </div>
+                </div>
+                <p className="text-amber-400 text-xs mt-1.5 italic font-display">"Kamũingĩ Koyaga Ndĩrĩ" — Unity is Strength</p>
+              </div>
+
+              {/* Contact & Support */}
+              <div className="text-xs text-emerald-200 space-y-2 font-sans">
+                <p className="font-display font-bold text-amber-400 mb-2 uppercase tracking-wide">Contact & Support</p>
+                <p className="flex items-center gap-2">
+                  <IconPhone className="w-4 h-4 text-amber-400 flex-shrink-0" />
+                  <span>Helpline: <a href="tel:0119706796" className="hover:underline text-amber-300 font-semibold font-mono tabular-nums">0119706796</a></span>
+                </p>
+                <p className="flex items-center gap-2">
+                  <IconMapPin className="w-4 h-4 text-amber-400 flex-shrink-0" />
+                  <span>Murang'a County Headquarters</span>
+                </p>
+              </div>
+          </div>
+
+          <div className="border-t border-emerald-900 mt-6 pt-5 text-center text-xs text-emerald-400 font-sans">
+            <p>© 2026 Murang'a County Government. All rights reserved.</p>
+          </div>
+        </div>
+      </footer>
+    </div>
+  );
+}
+
+/* ── Mount the React app ────────────────────────────────────────────────── */
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+{% endraw %}
+</body>
+</html>

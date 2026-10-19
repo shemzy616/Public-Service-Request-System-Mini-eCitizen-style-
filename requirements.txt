@@ -1,0 +1,19 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# Huduma Murang'a — Public Service Request System
+# County 021 | Murang'a County Government
+# Python Core Dependencies for Evaluation & Production Deployment
+# Install with:  pip install -r requirements.txt
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Core WSGI web application framework & routing engine
+Flask>=3.0.0
+
+# Security utilities (PBKDF2/scrypt password hashing & secure_filename)
+Werkzeug>=3.0.0
+
+# 12-Factor environment variable management (.env loading)
+python-dotenv>=1.0.0
+
+# Production WSGI HTTP Server (for cloud deployment: Render, Railway, Heroku)
+gunicorn>=21.2.0
+
